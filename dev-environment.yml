@@ -1,0 +1,13 @@
+name: quenelles-dev
+channels:
+    - conda-forge
+dependencies:
+    - pip
+    - pyzmq
+    - typer
+    - rich
+    - kernel_driver
+    - pytest
+    - pytest-asyncio
+    - flake8
+    - black
