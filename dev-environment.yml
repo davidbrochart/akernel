@@ -5,9 +5,9 @@ dependencies:
     - pip
     - pyzmq
     - typer
-    - rich
-    - kernel_driver
     - pytest
     - pytest-asyncio
     - flake8
     - black
+    - pip:
+      - git+https://github.com/davidbrochart/kernel_driver.git#egg=kernel_driver

@@ -12,7 +12,6 @@ setup(
     install_requires=[
         "pyzmq",
         "typer",
-        "rich",
         "kernel_driver",
     ],
     entry_points={

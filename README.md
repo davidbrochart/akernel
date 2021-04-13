@@ -3,4 +3,13 @@
 
 # quenelles
 
-Jupyter kernels that have gone bad.
+Asynchronous Jupyter kernels.
+
+```
+  _______
+ /       \
+|   / / / |
+|  / / /  |
+| / / /   |
+ \_______/
+```

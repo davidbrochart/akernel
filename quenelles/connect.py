@@ -21,8 +21,8 @@ def create_socket(channel: str, cfg: cfg_t) -> Socket:
     url = f"tcp://{ip}:{port}"
     socket_type = channel_socket_types[channel]
     sock = context.socket(socket_type)
-    sock.linger = 1000  # set linger to 1s to prevent hangs at exit
-    sock.connect(url)
+    sock.linger = 1000
+    sock.bind(url)
     return sock
 
 
