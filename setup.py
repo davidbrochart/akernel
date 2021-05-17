@@ -1,13 +1,13 @@
 from setuptools import setup
 
 setup(
-    name="quenelles",
+    name="akernel",
     version="0.0.1",
-    url="https://github.com/davidbrochart/quenelles.git",
+    url="https://github.com/davidbrochart/akernel.git",
     author="David Brochart",
     author_email="david.brochart@gmail.com",
-    description="Jupyter kernels that have gone bad",
-    packages=["quenelles"],
+    description="Asynchronous Python Jupyter kernel",
+    packages=["akernel"],
     python_requires=">=3.7",
     install_requires=[
         "pyzmq",
@@ -15,7 +15,7 @@ setup(
         "kernel_driver",
     ],
     entry_points={
-        "console_scripts": ["quenelles = quenelles.quenelles:cli"],
+        "console_scripts": ["akernel = akernel.akernel:cli"],
     },
     classifiers=(
         "Programming Language :: Python :: 3",

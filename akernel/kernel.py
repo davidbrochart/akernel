@@ -59,6 +59,16 @@ def feed_identities(msg_list: List[bytes]) -> Tuple[List[bytes], List[bytes]]:
     return msg_list[:idx], msg_list[idx + 1 :]  # noqa
 
 
+def make_async(code: str, globals_: List[str]) -> str:
+    async_code = ["async def async_func():"]
+    if globals_:
+        async_code += ["    global " + ", ".join(globals_)]
+    async_code += ["    " + line for line in code.splitlines()]
+    async_code += ["    __globals__.update(locals())"]
+    async_code += ["    __globals__.update(globals())"]
+    return "\n".join(async_code)
+
+
 class Kernel:
     def __init__(
         self,
@@ -66,9 +76,12 @@ class Kernel:
         connection_file: str,
     ):
         self.kernel_name = kernel_name
+        self.globals = {}
         self.global_context = {
+            "asyncio": asyncio,
             "__streamout__": Stream(self, "stdout"),
             "__streamerr__": Stream(self, "stderr"),
+            "__globals__": self.globals,
         }
         self.local_context = {}
         self.parent_header = {}
@@ -99,12 +112,18 @@ class Kernel:
             elif msg_type == "execute_request":
                 code = msg["content"]["code"]
                 self.parent_header = parent_header
-                exec(code, self.global_context, self.local_context)
-                msg = create_message(
-                    "status",
-                    parent_header=parent_header,
-                    content={"execution_state": "idle"},
-                )
-                send_message(msg, self.iopub_channel, self.key)
-                msg = create_message("execute_reply", parent_header=parent_header)
-                send_message(msg, self.shell_channel, self.key, idents[0])
+                async_code = make_async(code, self.globals)
+                exec(async_code, self.global_context, self.local_context)
+                asyncio.create_task(self.execute_code(idents))
+
+    async def execute_code(self, idents):
+        await self.local_context["async_func"]()
+        self.global_context.update(self.globals)
+        msg = create_message(
+            "status",
+            parent_header=self.parent_header,
+            content={"execution_state": "idle"},
+        )
+        send_message(msg, self.iopub_channel, self.key)
+        msg = create_message("execute_reply", parent_header=self.parent_header)
+        send_message(msg, self.shell_channel, self.key, idents[0])

@@ -11,7 +11,7 @@ cli = typer.Typer()
 def install(
     kernel_name: str = typer.Argument(..., help="Name of the kernel to install.")
 ):
-    write_kernelspec("quenelles", kernel_name, "Python 3")
+    write_kernelspec("akernel", kernel_name, "Python 3")
 
 
 @cli.command()
