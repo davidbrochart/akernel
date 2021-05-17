@@ -1,4 +1,4 @@
-name: quenelles-dev
+name: akernel-dev
 channels:
     - conda-forge
 dependencies:
