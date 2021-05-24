@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="akernel",
-    version="0.0.1",
+    version="0.0.2",
     url="https://github.com/davidbrochart/akernel.git",
     author="David Brochart",
     author_email="david.brochart@gmail.com",
