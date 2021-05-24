@@ -20,26 +20,16 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 
-class Stream:
-    def __init__(self, kernel, stream_name):
-        self.kernel = kernel
-        self.stream_name = stream_name
-        self.text = []
+def __print__(kernel):
+    def _(parent_header, text):
+        msg = create_message(
+            "stream",
+            parent_header=parent_header,
+            content={"name": "stdout", "text": f"{text}\n"},
+        )
+        send_message(msg, kernel.iopub_channel, kernel.key)
 
-    def write(self, text):
-        self.text.append(text)
-        if text.endswith("\n"):
-            text = "".join(self.text)
-            self.text = []
-            msg = create_message(
-                "stream",
-                parent_header=self.kernel.parent_header,
-                content={"name": self.stream_name, "text": text},
-            )
-            send_message(msg, self.kernel.iopub_channel, self.kernel.key)
-
-    def flush(self):
-        pass
+    return _
 
 
 async def receive_message(
@@ -59,13 +49,17 @@ def feed_identities(msg_list: List[bytes]) -> Tuple[List[bytes], List[bytes]]:
     return msg_list[:idx], msg_list[idx + 1 :]  # noqa
 
 
-def make_async(code: str, globals_: List[str]) -> str:
-    async_code = ["async def async_func():"]
+def make_async(code: str, globals_: Dict[str, Any]) -> str:
+    async_code = ["async def async_func(__parent_header__):"]
     if globals_:
-        async_code += ["    global " + ", ".join(globals_)]
+        async_code += ["    global " + ", ".join(globals_.keys())]
+    async_code += ["    def print(text):"]
+    async_code += ["        __print__(__parent_header__, text)"]
     async_code += ["    " + line for line in code.splitlines()]
     async_code += ["    __globals__.update(locals())"]
     async_code += ["    __globals__.update(globals())"]
+    async_code += ["    del __globals__['print']"]
+    async_code += ["    del __globals__['__parent_header__']"]
     return "\n".join(async_code)
 
 
@@ -79,14 +73,11 @@ class Kernel:
         self.globals = {}
         self.global_context = {
             "asyncio": asyncio,
-            "__streamout__": Stream(self, "stdout"),
-            "__streamerr__": Stream(self, "stderr"),
+            "__print__": __print__(self),
             "__globals__": self.globals,
         }
         self.local_context = {}
         self.parent_header = {}
-        code = "import sys;sys.stdout=__streamout__;sys.stderr=__streamerr__"
-        exec(code, self.global_context, self.local_context)
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
@@ -111,19 +102,18 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
             elif msg_type == "execute_request":
                 code = msg["content"]["code"]
-                self.parent_header = parent_header
                 async_code = make_async(code, self.globals)
                 exec(async_code, self.global_context, self.local_context)
-                asyncio.create_task(self.execute_code(idents))
+                asyncio.create_task(self.execute_code(idents, parent_header))
 
-    async def execute_code(self, idents):
-        await self.local_context["async_func"]()
+    async def execute_code(self, idents, parent_header):
+        await self.local_context["async_func"](parent_header)
         self.global_context.update(self.globals)
         msg = create_message(
             "status",
-            parent_header=self.parent_header,
+            parent_header=parent_header,
             content={"execution_state": "idle"},
         )
         send_message(msg, self.iopub_channel, self.key)
-        msg = create_message("execute_reply", parent_header=self.parent_header)
+        msg = create_message("execute_reply", parent_header=parent_header)
         send_message(msg, self.shell_channel, self.key, idents[0])
