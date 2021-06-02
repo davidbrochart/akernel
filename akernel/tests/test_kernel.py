@@ -13,6 +13,7 @@ async def test_kernel(capfd):
     )
     kd = KernelDriver(kernelspec_path=kernelspec_path, log=False)
     await kd.start(startup_timeout=timeout)
+    await kd.execute("foo", timeout=timeout)
     await kd.execute("print('Hello World!')", timeout=timeout)
     await kd.execute("a = 1", timeout=timeout)
     await kd.execute("print(a)", timeout=timeout)
@@ -28,4 +29,5 @@ async def test_kernel(capfd):
     await kd.stop()
 
     out, err = capfd.readouterr()
+    assert err.splitlines()[-1] == "name 'foo' is not defined"
     assert out == "Hello World!\n1\n3\ndone1\ndone2\n"

@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "akernel",
+    "launch",
+    "python",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "Python 3",
+  "language": "python"
+}
