@@ -10,7 +10,7 @@ def get_data_files():
 
 setup(
     name="akernel",
-    version="0.0.2",
+    version="0.0.3",
     url="https://github.com/davidbrochart/akernel.git",
     author="David Brochart",
     author_email="david.brochart@gmail.com",
