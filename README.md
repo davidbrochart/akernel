@@ -18,7 +18,7 @@ for i in range(10):
     await asyncio.sleep(1)
 ```
 
-Since this cell is `async` (it has an `await`), it will not block the execution other cells.
+Since this cell is `async` (it has an `await`), it will not block the execution of other cells.
 So you can run another cell "in parallel", provided that this cell is also cooperative:
 
 ```python
@@ -28,8 +28,8 @@ for j in range(10):
     await asyncio.sleep(1)
 ```
 
-If cell 2 was blocking, cell 1 would be paused until cell 2 was finished. You can see that by
-changing `await asyncio.sleep(1)` into `time.sleep(1)`.
+If cell 2 was blocking, cell 1 would pause until cell 2 was finished. You can see that by changing
+`await asyncio.sleep(1)` into `time.sleep(1)` in cell 2.
 
 ## Limitations
 

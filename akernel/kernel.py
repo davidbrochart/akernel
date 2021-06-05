@@ -108,6 +108,8 @@ class Kernel:
         connection_file: str,
     ):
         self.kernel_name = kernel_name
+        self.execution_count = 1
+        self.execution_state = "starting"
         self.globals = {}
         self.global_context = {
             "asyncio": asyncio,
@@ -125,6 +127,11 @@ class Kernel:
     async def main(self):
         self.shell_channel = connect_channel("shell", self.connection_cfg)
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
+        msg = create_message(
+            "status", content={"execution_state": self.execution_state}
+        )
+        send_message(msg, self.iopub_channel, self.key)
+        self.execution_state = "idle"
         asyncio.create_task(self.listen_shell())
         while True:
             await asyncio.sleep(1)
@@ -137,23 +144,35 @@ class Kernel:
             if msg_type == "kernel_info_request":
                 msg = create_message("kernel_info_reply")
                 send_message(msg, self.shell_channel, self.key, idents[0])
-                msg = create_message("status", parent_header=parent_header)
+                msg = create_message(
+                    "status",
+                    parent_header=parent_header,
+                    content={"execution_state": self.execution_state},
+                )
                 send_message(msg, self.iopub_channel, self.key)
             elif msg_type == "execute_request":
+                self.execution_state = "busy"
                 code = msg["content"]["code"]
+                msg = create_message(
+                    "status",
+                    parent_header=parent_header,
+                    content={"execution_state": self.execution_state},
+                )
+                send_message(msg, self.iopub_channel, self.key)
                 async_code = make_async(code, self.globals)
                 try:
                     exec(async_code, self.global_context, self.local_context)
                 except Exception as e:
-                    self.send_exception_message(e, parent_header)
-                    self.finish_execution(idents, parent_header)
-                asyncio.create_task(self.execute_code(idents, parent_header))
+                    self.finish_execution(idents, parent_header, exception=e)
+                else:
+                    asyncio.create_task(self.execute_code(idents, parent_header))
 
     async def execute_code(self, idents, parent_header):
+        exception = None
         try:
             result = await self.local_context["__async_cell__"](parent_header)
         except Exception as e:
-            self.send_exception_message(e, parent_header)
+            exception = e
         else:
             if result is not None:
                 msg = create_message(
@@ -162,24 +181,33 @@ class Kernel:
                     content={"name": "stdout", "text": f"{repr(result)}\n"},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-        self.global_context.update(self.globals)
-        self.finish_execution(idents, parent_header)
+        finally:
+            self.global_context.update(self.globals)
+            self.finish_execution(idents, parent_header, exception=exception)
 
-    def finish_execution(self, idents, parent_header):
+    def finish_execution(self, idents, parent_header, exception=None):
+        if exception is None:
+            status = "ok"
+        else:
+            status = "error"
+            tb = "".join(traceback.format_tb(exception.__traceback__))
+            msg = create_message(
+                "stream",
+                parent_header=parent_header,
+                content={"name": "stderr", "text": f"{tb}{exception}\n"},
+            )
+            send_message(msg, self.iopub_channel, self.key)
+        self.execution_state = "idle"
         msg = create_message(
             "status",
             parent_header=parent_header,
-            content={"execution_state": "idle"},
+            content={"execution_state": self.execution_state},
         )
         send_message(msg, self.iopub_channel, self.key)
-        msg = create_message("execute_reply", parent_header=parent_header)
-        send_message(msg, self.shell_channel, self.key, idents[0])
-
-    def send_exception_message(self, exception, parent_header):
-        tb = "".join(traceback.format_tb(exception.__traceback__))
         msg = create_message(
-            "stream",
+            "execute_reply",
             parent_header=parent_header,
-            content={"name": "stderr", "text": f"{tb}{exception}\n"},
+            content={"status": status, "execution_count": self.execution_count},
         )
-        send_message(msg, self.iopub_channel, self.key)
+        send_message(msg, self.shell_channel, self.key, idents[0])
+        self.execution_count += 1
