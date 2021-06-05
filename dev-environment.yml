@@ -5,6 +5,7 @@ dependencies:
     - pip
     - pyzmq
     - typer
+    - click <8
     - pytest
     - pytest-asyncio
     - flake8
