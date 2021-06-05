@@ -1,4 +1,10 @@
+import os
 from setuptools import setup
+
+here = os.path.abspath(os.path.dirname(__file__))
+version_ns = {}
+with open(os.path.join(here, "akernel", "_version.py")) as f:
+    exec(f.read(), {}, version_ns)
 
 def get_data_files():
     """Get the data files for the package.
@@ -10,7 +16,7 @@ def get_data_files():
 
 setup(
     name="akernel",
-    version="0.0.3",
+    version=version_ns["__version__"],
     url="https://github.com/davidbrochart/akernel.git",
     author="David Brochart",
     author_email="david.brochart@gmail.com",

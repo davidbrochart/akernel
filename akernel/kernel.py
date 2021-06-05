@@ -1,4 +1,5 @@
 import sys
+import platform
 import signal
 import asyncio
 import json
@@ -11,6 +12,7 @@ from zmq.sugar.socket import Socket
 
 from .connect import connect_channel
 from .message import send_message, create_message, deserialize
+from ._version import __version__
 
 
 DELIM = b"<IDS|MSG>"
@@ -127,14 +129,21 @@ class Kernel:
     async def main(self):
         self.shell_channel = connect_channel("shell", self.connection_cfg)
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
+        self.control_channel = connect_channel("control", self.connection_cfg)
         msg = create_message(
             "status", content={"execution_state": self.execution_state}
         )
         send_message(msg, self.iopub_channel, self.key)
         self.execution_state = "idle"
+        self.stop = asyncio.Event()
         asyncio.create_task(self.listen_shell())
+        asyncio.create_task(self.listen_control())
         while True:
-            await asyncio.sleep(1)
+            await self.stop.wait()
+            if self.restart:
+                self.stop.clear()
+            else:
+                break
 
     async def listen_shell(self):
         while True:
@@ -142,7 +151,23 @@ class Kernel:
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             if msg_type == "kernel_info_request":
-                msg = create_message("kernel_info_reply")
+                msg = create_message(
+                    "kernel_info_reply",
+                    parent_header=parent_header,
+                    content={
+                        "status": "ok",
+                        "protocol_version": "5.5",
+                        "implementation": "akernel",
+                        "implementation_version": __version__,
+                        "language_info": {
+                            "name": "python",
+                            "version": platform.python_version(),
+                            "mimetype": "text/x-python",
+                            "file_extension": ".py",
+                        },
+                        "banner": "Python " + sys.version,
+                    },
+                )
                 send_message(msg, self.shell_channel, self.key, idents[0])
                 msg = create_message(
                     "status",
@@ -166,6 +191,30 @@ class Kernel:
                     self.finish_execution(idents, parent_header, exception=e)
                 else:
                     asyncio.create_task(self.execute_code(idents, parent_header))
+
+    async def listen_control(self):
+        while True:
+            idents, msg = await receive_message(self.control_channel)
+            msg_type = msg["header"]["msg_type"]
+            parent_header = msg["header"]
+            if msg_type == "shutdown_request":
+                self.restart = msg["content"]["restart"]
+                msg = create_message(
+                    "shutdown_reply",
+                    parent_header=parent_header,
+                    content={"restart": self.restart},
+                )
+                send_message(msg, self.control_channel, self.key, idents[0])
+                if self.restart:
+                    self.globals = {}
+                    self.global_context = {
+                        "asyncio": asyncio,
+                        "sys": sys,
+                        "__print__": __print__(self),
+                        "__globals__": self.globals,
+                    }
+                    self.local_context = {}
+                self.stop.set()
 
     async def execute_code(self, idents, parent_header):
         exception = None

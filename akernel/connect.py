@@ -11,6 +11,7 @@ cfg_t = Dict[str, Union[str, int]]
 
 channel_socket_types = {
     "shell": zmq.ROUTER,
+    "control": zmq.ROUTER,
     "iopub": zmq.PUB,
 }
 
