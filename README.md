@@ -19,7 +19,7 @@ for i in range(10):
 ```
 
 Since this cell is `async` (it has an `await`), it will not block the execution of other cells.
-So you can run another cell "in parallel", provided that this cell is also cooperative:
+So you can run another cell concurrently, provided that this cell is also cooperative:
 
 ```python
 # cell 2
@@ -30,6 +30,14 @@ for j in range(10):
 
 If cell 2 was blocking, cell 1 would pause until cell 2 was finished. You can see that by changing
 `await asyncio.sleep(1)` into `time.sleep(1)` in cell 2.
+
+You can make a cell wait for the previous one to be finished with:
+
+```python
+# cell 2
+await __task__()  # wait for cell 1 to be finished
+print("cell 1 has run")
+```
 
 ## Limitations
 

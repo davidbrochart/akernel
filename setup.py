@@ -21,6 +21,8 @@ setup(
     author="David Brochart",
     author_email="david.brochart@gmail.com",
     description="An asynchronous Python Jupyter kernel",
+    long_description=open("README.md").read(),
+    long_description_content_type='text/markdown',
     packages=["akernel"],
     python_requires=">=3.7",
     install_requires=[

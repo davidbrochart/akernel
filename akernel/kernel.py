@@ -17,31 +17,6 @@ from ._version import __version__
 DELIM = b"<IDS|MSG>"
 
 
-def __print__(kernel):
-    def new_print(
-        *objects, sep=" ", end="\n", file=sys.stdout, flush=False, parent_header=""
-    ):
-        if file is sys.stdout:
-            name = "stdout"
-        elif file is sys.stderr:
-            name = "stderr"
-        else:
-            print(*objects, sep, end, file, flush)
-            return
-        f = StringIO()
-        print(*objects, sep=sep, end=end, file=f, flush=True)
-        text = f.getvalue()
-        f.close()
-        msg = create_message(
-            "stream",
-            parent_header=parent_header,
-            content={"name": name, "text": text},
-        )
-        send_message(msg, kernel.iopub_channel, kernel.key)
-
-    return new_print
-
-
 async def check_message(sock: Socket) -> bool:
     return await sock.poll(0)
 
@@ -96,17 +71,17 @@ def make_async(code: str, globals_: Dict[str, Any]) -> str:
         async_code += ["        " + last_line]
     async_code += ["    except asyncio.CancelledError:"]
     async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
+    async_code += ["        __interrupted__ = True"]
     async_code += ["    except KeyboardInterrupt:"]
     async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
     async_code += ["        __interrupted__ = True"]
     async_code += ["    except Exception as e:"]
     async_code += ["        __exception__ = e"]
-    async_code += ["    __globals__.update(locals())"]
-    async_code += ["    __globals__.update(globals())"]
-    async_code += ["    del __globals__['print']"]
-    async_code += ["    del __globals__['__parent_header__']"]
-    async_code += ["    del __globals__['__result__']"]
-    async_code += ["    del __globals__['__exception__']"]
+    async_code += ["    globals().update(locals())"]
+    async_code += ["    del globals()['print']"]
+    async_code += ["    del globals()['__parent_header__']"]
+    async_code += ["    del globals()['__result__']"]
+    async_code += ["    del globals()['__exception__']"]
     async_code += ["    if __exception__ is None:"]
     async_code += ["        return __result__"]
     async_code += ["    raise __exception__"]
@@ -125,14 +100,15 @@ class Kernel:
         self.task_i = 0
         self.execution_count = 1
         self.execution_state = "starting"
-        self.globals = {"__interrupted__": False}
-        self.global_context = {
+        self.globals = {
             "asyncio": asyncio,
             "sys": sys,
-            "__print__": __print__(self),
-            "__globals__": self.globals,
+            "__print__": self.print(),
+            "__interrupted__": False,
+            "__task__": self.task,
+            "_": None,
         }
-        self.local_context = {}
+        self.locals = {}
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
@@ -218,7 +194,7 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
                 async_code = make_async(code, self.globals)
                 try:
-                    exec(async_code, self.global_context, self.local_context)
+                    exec(async_code, self.globals, self.locals)
                 except Exception as e:
                     self.finish_execution(idents, parent_header, exception=e)
                 else:
@@ -242,21 +218,22 @@ class Kernel:
                 )
                 send_message(msg, self.control_channel, self.key, idents[0])
                 if self.restart:
-                    self.globals = {}
-                    self.global_context = {
+                    self.globals = {
                         "asyncio": asyncio,
                         "sys": sys,
-                        "__print__": __print__(self),
-                        "__globals__": self.globals,
+                        "__print__": self.print(),
+                        "__interrupted__": False,
+                        "__task__": self.task,
+                        "_": None,
                     }
-                    self.local_context = {}
+                    self.locals = {}
                     self.execution_count = 1
                 self.stop.set()
 
     async def execute_code(self, idents, parent_header, task_i):
         exception = None
         try:
-            result = await self.local_context["__async_cell__"](parent_header)
+            result = await self.locals["__async_cell__"](parent_header)
         except Exception as e:
             exception = e
             if self.globals["__interrupted__"]:
@@ -265,6 +242,7 @@ class Kernel:
                 self.running_cells = {}
         else:
             if result is not None:
+                self.globals["_"] = result
                 msg = create_message(
                     "stream",
                     parent_header=parent_header,
@@ -272,7 +250,6 @@ class Kernel:
                 )
                 send_message(msg, self.iopub_channel, self.key)
         finally:
-            self.global_context.update(self.globals)
             self.finish_execution(idents, parent_header, exception=exception)
             if task_i in self.running_cells:
                 del self.running_cells[task_i]
@@ -308,3 +285,38 @@ class Kernel:
             content={"execution_state": self.execution_state},
         )
         send_message(msg, self.iopub_channel, self.key)
+
+    async def task(self, cell_i=-1):
+        if cell_i < 0:
+            i = self.task_i - 1 + cell_i
+        else:
+            i = cell_i
+        if i not in self.running_cells:
+            return
+        await self.running_cells[i]
+        if self.globals["__interrupted__"]:
+            raise RuntimeError("Kernel interrupted")
+
+    def print(self):
+        def new_print(
+            *objects, sep=" ", end="\n", file=sys.stdout, flush=False, parent_header=""
+        ):
+            if file is sys.stdout:
+                name = "stdout"
+            elif file is sys.stderr:
+                name = "stderr"
+            else:
+                print(*objects, sep, end, file, flush)
+                return
+            f = StringIO()
+            print(*objects, sep=sep, end=end, file=f, flush=True)
+            text = f.getvalue()
+            f.close()
+            msg = create_message(
+                "stream",
+                parent_header=parent_header,
+                content={"name": name, "text": text},
+            )
+            send_message(msg, self.iopub_channel, self.key)
+
+        return new_print
