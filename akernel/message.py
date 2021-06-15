@@ -46,6 +46,8 @@ def create_message_header(
 def create_message(
     msg_type: str,
     content: Dict = {},
+    metadata: Dict = {},
+    buffers: List = [],
     parent_header: Dict[str, Any] = {},
     session_id: str = "",
     msg_cnt: int = 0,
@@ -57,7 +59,7 @@ def create_message(
         "msg_type": header["msg_type"],
         "parent_header": parent_header,
         "content": content,
-        "metadata": {},
+        "metadata": metadata,
     }
     return msg
 
@@ -77,9 +79,20 @@ def serialize(msg: Dict[str, Any], key: str, address: bytes = b"") -> List[bytes
 
 
 def send_message(
-    msg: Dict[str, Any], sock: Socket, key: str, address: bytes = b""
+    msg: Dict[str, Any],
+    sock: Socket,
+    key: str,
+    address: bytes = b"",
+    buffers: List = [],
 ) -> None:
     to_send = serialize(msg, key, address)
+    for buf in buffers:
+        if isinstance(buf, memoryview):
+            view = buf
+        else:
+            view = memoryview(buf)
+        assert view.contiguous
+    to_send += buffers
     return sock.send_multipart(to_send, copy=True)
 
 
