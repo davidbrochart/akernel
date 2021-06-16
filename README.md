@@ -47,6 +47,6 @@ It is still a work in progress, and a bit hacky. In particular:
 - If a cell wants to access a variable of another running cell, this variable must exist before the
   execution of both cells.
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
-- The display hook only supports the standard `__repr__` for now (no fancy HTML output or widget
-  yet).
+- No rich representation for now, only the standard `__repr__` is supported. This means no
+  matplotlib figure yet :-( But ipywidgets should work!
 - If the cell code has multiline strings, they must be wrapped with the `textwrap.dedent` function.
