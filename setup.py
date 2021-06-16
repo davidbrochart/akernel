@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 here = os.path.abspath(os.path.dirname(__file__))
 version_ns = {}
@@ -23,7 +23,7 @@ setup(
     description="An asynchronous Python Jupyter kernel",
     long_description=open("README.md").read(),
     long_description_content_type='text/markdown',
-    packages=["akernel"],
+    packages=find_packages(),
     python_requires=">=3.7",
     install_requires=[
         "pyzmq",
