@@ -13,6 +13,8 @@ from zmq.sugar.socket import Socket
 from akernel.comm import comm
 from akernel.comm.manager import CommManager
 from akernel.display import display
+import akernel.IPython
+from akernel.IPython import core
 from .connect import connect_channel
 from .message import send_message, create_message, deserialize
 from ._version import __version__
@@ -26,6 +28,8 @@ KERNEL = None
 
 sys.modules["ipykernel.comm"] = comm
 sys.modules["IPython.display"] = display
+sys.modules["IPython"] = akernel.IPython
+sys.modules["IPython.core"] = core
 
 
 async def check_message(sock: Socket) -> bool:
@@ -244,6 +248,8 @@ class Kernel:
                     content={"execution_state": self.execution_state},
                 )
                 send_message(msg2, self.iopub_channel, self.key)
+            elif msg_type == "comm_msg":
+                self.comm_manager.comm_msg(None, None, msg)
 
     async def listen_control(self):
         while True:

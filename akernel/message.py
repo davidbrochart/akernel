@@ -47,7 +47,6 @@ def create_message(
     msg_type: str,
     content: Dict = {},
     metadata: Dict = {},
-    buffers: List = [],
     parent_header: Dict[str, Any] = {},
     session_id: str = "",
     msg_cnt: int = 0,

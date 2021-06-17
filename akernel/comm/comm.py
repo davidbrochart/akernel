@@ -12,10 +12,15 @@ class Comm:
         self._msg_callback = None
         self._close_callback = None
         self.comm_id = uuid.uuid4().hex
+        self.topic = ("comm-" + self.comm_id).encode("ascii")
+        self.primary = True
         self.target_name = target_name
         self.target_module = None
         self.parent_header = PARENT_HEADER_VAR.get()
-        self.open(data=data, metadata=metadata, buffers=buffers)
+        if self.primary:
+            self.open(data=data, metadata=metadata, buffers=buffers)
+        else:
+            self._closed = False
 
     def _publish_msg(self, msg_type, data, metadata, buffers, **keys):
         msg = create_message(
@@ -23,9 +28,14 @@ class Comm:
             content=dict(data=data, comm_id=self.comm_id, **keys),
             metadata=metadata,
             parent_header=self.parent_header,
+        )
+        send_message(
+            msg,
+            self.kernel.iopub_channel,
+            self.kernel.key,
+            address=self.topic,
             buffers=buffers,
         )
-        send_message(msg, self.kernel.iopub_channel, self.kernel.key)
 
     def __del__(self):
         self.close(deleting=True)
@@ -72,4 +82,18 @@ class Comm:
 
     def handle_msg(self, msg):
         if self._msg_callback:
+            self.kernel.execution_state = "busy"
+            msg2 = create_message(
+                "status",
+                parent_header=msg["header"],
+                content={"execution_state": self.kernel.execution_state},
+            )
+            send_message(msg2, self.kernel.iopub_channel, self.kernel.key)
             self._msg_callback(msg)
+            self.kernel.execution_state = "idle"
+            msg2 = create_message(
+                "status",
+                parent_header=msg["header"],
+                content={"execution_state": self.kernel.execution_state},
+            )
+            send_message(msg2, self.kernel.iopub_channel, self.kernel.key)
