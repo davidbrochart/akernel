@@ -1,7 +1,7 @@
 from ..message import send_message, create_message
 
 
-def display(*args, raw=False):
+def display(*args, raw: bool = False) -> None:
     from ..kernel import KERNEL, PARENT_HEADER_VAR
 
     parent_header = PARENT_HEADER_VAR.get()
@@ -14,5 +14,5 @@ def display(*args, raw=False):
     send_message(msg, KERNEL.iopub_channel, KERNEL.key)
 
 
-def clear_output():
+def clear_output() -> None:
     pass

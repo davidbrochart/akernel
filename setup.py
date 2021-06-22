@@ -31,6 +31,16 @@ setup(
         "click<8",
         "python-dateutil",
     ],
+    extras_require={
+        "test": [
+            "mypy",
+            "flake8",
+            "black",
+            "pytest",
+            "pytest-asyncio",
+            "types-python-dateutil",
+        ],
+    },
     entry_points={
         "console_scripts": ["akernel = akernel.akernel:cli"],
     },

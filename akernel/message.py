@@ -2,7 +2,7 @@ import uuid
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 from zmq.utils import jsonapi
 from zmq.sugar.socket import Socket
@@ -23,6 +23,11 @@ def date_to_str(obj: Dict[str, Any]):
 
 def utcnow() -> datetime:
     return datetime.utcnow().replace(tzinfo=timezone.utc)
+
+
+def feed_identities(msg_list: List[bytes]) -> Tuple[List[bytes], List[bytes]]:
+    idx = msg_list.index(DELIM)
+    return msg_list[:idx], msg_list[idx + 1 :]  # noqa
 
 
 def create_message_header(
@@ -77,6 +82,18 @@ def serialize(msg: Dict[str, Any], key: str, address: bytes = b"") -> List[bytes
     return to_send
 
 
+async def receive_message(
+    sock: Socket, timeout: float = float("inf")
+) -> Optional[Tuple[List[bytes], Dict[str, Any]]]:
+    timeout *= 1000  # in ms
+    ready = await sock.poll(timeout)
+    if ready:
+        msg_list = await sock.recv_multipart()
+        idents, msg_list = feed_identities(msg_list)
+        return idents, deserialize(msg_list)
+    return None
+
+
 def send_message(
     msg: Dict[str, Any],
     sock: Socket,
@@ -128,3 +145,7 @@ def deserialize(msg_list: List[bytes]) -> Dict[str, Any]:
     message["content"] = unpack(msg_list[4])
     message["buffers"] = [memoryview(b) for b in msg_list[5:]]
     return message
+
+
+async def check_message(sock: Socket) -> bool:
+    return await sock.poll(0)

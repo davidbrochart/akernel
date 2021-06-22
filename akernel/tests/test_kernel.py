@@ -3,7 +3,7 @@ import asyncio
 import signal
 
 import pytest
-from kernel_driver import KernelDriver
+from kernel_driver import KernelDriver  # type: ignore
 
 
 TIMEOUT = 1

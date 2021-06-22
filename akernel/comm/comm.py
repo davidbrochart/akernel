@@ -1,13 +1,32 @@
 import uuid
+from typing import Dict, List, Any, Callable, Optional
 
 from ..message import send_message, create_message
 
 
 class Comm:
-    def __init__(self, target_name="", data={}, metadata={}, buffers=[], **kwargs):
-        from ..kernel import KERNEL, PARENT_HEADER_VAR
 
-        self.kernel = KERNEL
+    _closed: bool
+    _msg_callback: Optional[Callable]
+    _close_callback: Optional[Callable]
+    comm_id: str
+    topic: bytes
+    primary: bool
+    target_name: str
+    target_module: Any
+    parent_header: Dict[str, Any]
+
+    def __init__(
+        self,
+        target_name: str = "",
+        data: Dict[str, Any] = {},
+        metadata: Dict[str, Any] = {},
+        buffers: List[bytes] = [],
+        **kwargs
+    ):
+        from ..kernel import KERNEL, PARENT_HEADER_VAR, Kernel
+
+        self.kernel: Kernel = KERNEL
         self._closed = True
         self._msg_callback = None
         self._close_callback = None
@@ -22,7 +41,14 @@ class Comm:
         else:
             self._closed = False
 
-    def _publish_msg(self, msg_type, data, metadata, buffers, **keys):
+    def _publish_msg(
+        self,
+        msg_type: str,
+        data: Dict[str, Any],
+        metadata: Dict[str, Any],
+        buffers: List[bytes],
+        **keys
+    ) -> None:
         msg = create_message(
             msg_type,
             content=dict(data=data, comm_id=self.comm_id, **keys),
@@ -40,7 +66,9 @@ class Comm:
     def __del__(self):
         self.close(deleting=True)
 
-    def open(self, data, metadata, buffers):
+    def open(
+        self, data: Dict[str, Any], metadata: Dict[str, Any], buffers: List[bytes]
+    ) -> None:
         self.kernel.comm_manager.register_comm(self)
         self._publish_msg(
             "comm_open",
@@ -52,12 +80,16 @@ class Comm:
         )
         self._closed = False
 
-    def close(self, data=None, metadata=None, buffers=None, deleting=False):
+    def close(
+        self,
+        data: Dict[str, Any] = {},
+        metadata: Dict[str, Any] = {},
+        buffers: List[bytes] = [],
+        deleting: bool = False,
+    ) -> None:
         if self._closed:
             return
         self._closed = True
-        if data is None:
-            data = self._close_data
         self._publish_msg(
             "comm_close",
             data=data,
@@ -67,20 +99,25 @@ class Comm:
         if not deleting:
             self.kernel.comm_manager.unregister_comm(self)
 
-    def send(self, data=[], metadata={}, buffers=[]):
+    def send(
+        self,
+        data: Dict[str, Any] = {},
+        metadata: Dict[str, Any] = {},
+        buffers: List[bytes] = [],
+    ) -> None:
         self._publish_msg("comm_msg", data, metadata, buffers)
 
-    def on_close(self, callback):
+    def on_close(self, callback: Callable) -> None:
         self._close_callback = callback
 
-    def on_msg(self, callback):
+    def on_msg(self, callback: Callable) -> None:
         self._msg_callback = callback
 
-    def handle_close(self, msg):
+    def handle_close(self, msg: Dict[str, Any]) -> None:
         if self._close_callback:
             self._close_callback(msg)
 
-    def handle_msg(self, msg):
+    def handle_msg(self, msg: Dict[str, Any]) -> None:
         if self._msg_callback:
             self.kernel.execution_state = "busy"
             msg2 = create_message(

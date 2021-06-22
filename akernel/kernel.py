@@ -5,8 +5,8 @@ import json
 import traceback
 import ast
 from io import StringIO
-import contextvars
-from typing import List, Tuple, Dict, Any, Optional, cast
+from contextvars import ContextVar
+from typing import Dict, Any, List, Optional, Union, cast
 
 from zmq.sugar.socket import Socket
 
@@ -16,41 +16,19 @@ from akernel.display import display
 import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
-from .message import send_message, create_message, deserialize
+from .message import receive_message, send_message, create_message, check_message
 from ._version import __version__
 
 
-PARENT_HEADER_VAR = contextvars.ContextVar("parent_header")
+PARENT_HEADER_VAR: ContextVar = ContextVar("parent_header")
 
-DELIM = b"<IDS|MSG>"
-KERNEL = None
+KERNEL: "Kernel"
 
 
 sys.modules["ipykernel.comm"] = comm
 sys.modules["IPython.display"] = display
 sys.modules["IPython"] = akernel.IPython
 sys.modules["IPython.core"] = core
-
-
-async def check_message(sock: Socket) -> bool:
-    return await sock.poll(0)
-
-
-async def receive_message(
-    sock: Socket, timeout: float = float("inf")
-) -> Optional[Dict[str, Any]]:
-    timeout *= 1000  # in ms
-    ready = await sock.poll(timeout)
-    if ready:
-        msg_list = await sock.recv_multipart()
-        idents, msg_list = feed_identities(msg_list)
-        return idents, deserialize(msg_list)
-    return None
-
-
-def feed_identities(msg_list: List[bytes]) -> Tuple[List[bytes], List[bytes]]:
-    idx = msg_list.index(DELIM)
-    return msg_list[:idx], msg_list[idx + 1 :]  # noqa
 
 
 def make_async(code: str, globals_: Dict[str, Any]) -> str:
@@ -95,6 +73,23 @@ def make_async(code: str, globals_: Dict[str, Any]) -> str:
 
 
 class Kernel:
+
+    shell_channel: Socket
+    iopub_channel: Socket
+    control_channel: Socket
+    connection_cfg: Dict[str, Union[str, int]]
+    stop: asyncio.Event
+    restart: bool
+    key: str
+    comm_manager: CommManager
+    kernel_name: str
+    running_cells: Dict[int, asyncio.Task]
+    task_i: int
+    execution_count: int
+    execution_state: str
+    globals: Dict[str, Any]
+    locals: Dict[str, Any]
+
     def __init__(
         self,
         kernel_name: str,
@@ -121,6 +116,7 @@ class Kernel:
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
+        self.restart = False
         init = True
         while True:
             try:
@@ -135,7 +131,7 @@ class Kernel:
             finally:
                 init = False
 
-    async def main(self, init):
+    async def main(self, init: bool) -> None:
         if init:
             self.shell_channel = connect_channel("shell", self.connection_cfg)
             self.iopub_channel = connect_channel("iopub", self.connection_cfg)
@@ -155,13 +151,15 @@ class Kernel:
             else:
                 break
 
-    async def listen_shell(self):
+    async def listen_shell(self) -> None:
         while True:
             if self.globals["__interrupted__"] and not await check_message(
                 self.shell_channel
             ):
                 self.globals["__interrupted__"] = False
-            idents, msg = await receive_message(self.shell_channel)
+            res = await receive_message(self.shell_channel)
+            assert res is not None
+            idents, msg = res
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             if msg_type == "kernel_info_request":
@@ -228,7 +226,7 @@ class Kernel:
                 send_message(msg2, self.iopub_channel, self.key)
                 if "target_name" in msg["content"]:
                     target_name = msg["content"]["target_name"]
-                    comms = []
+                    comms: List[str] = []
                     msg2 = create_message(
                         "comm_info_reply",
                         parent_header=parent_header,
@@ -251,9 +249,11 @@ class Kernel:
             elif msg_type == "comm_msg":
                 self.comm_manager.comm_msg(None, None, msg)
 
-    async def listen_control(self):
+    async def listen_control(self) -> None:
         while True:
-            idents, msg = await receive_message(self.control_channel)
+            res = await receive_message(self.control_channel)
+            assert res is not None
+            idents, msg = res
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             if msg_type == "shutdown_request":
@@ -277,7 +277,9 @@ class Kernel:
                     self.execution_count = 1
                 self.stop.set()
 
-    async def execute_code(self, idents, parent_header, task_i):
+    async def execute_code(
+        self, idents: List[bytes], parent_header: Dict[str, Any], task_i: int
+    ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         exception = None
         try:
@@ -305,8 +307,14 @@ class Kernel:
             if task_i in self.running_cells:
                 del self.running_cells[task_i]
 
-    def finish_execution(self, idents, parent_header, exception=None, no_exec=False):
-        execution_count = self.execution_count
+    def finish_execution(
+        self,
+        idents: List[bytes],
+        parent_header: Dict[str, Any],
+        exception: Optional[Exception] = None,
+        no_exec: bool = False,
+    ) -> None:
+        execution_count: Optional[int] = self.execution_count
         if no_exec:
             status = "ok"
             execution_count = None
@@ -337,7 +345,7 @@ class Kernel:
         )
         send_message(msg, self.iopub_channel, self.key)
 
-    async def task(self, cell_i=-1):
+    async def task(self, cell_i: int = -1) -> None:
         if cell_i < 0:
             i = self.task_i - 1 + cell_i
         else:
@@ -348,7 +356,14 @@ class Kernel:
         if self.globals["__interrupted__"]:
             raise RuntimeError("Kernel interrupted")
 
-    def print(self, *objects, sep=" ", end="\n", file=sys.stdout, flush=False):
+    def print(
+        self,
+        *objects,
+        sep: str = " ",
+        end: str = "\n",
+        file=sys.stdout,
+        flush: bool = False,
+    ) -> None:
         if file is sys.stdout:
             name = "stdout"
         elif file is sys.stderr:
