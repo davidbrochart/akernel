@@ -99,9 +99,10 @@ def send_message(
     sock: Socket,
     key: str,
     address: bytes = b"",
-    buffers: List = [],
+    buffers: Optional[List] = None,
 ) -> None:
     to_send = serialize(msg, key, address)
+    buffers = buffers or []
     for buf in buffers:
         if isinstance(buf, memoryview):
             view = buf
