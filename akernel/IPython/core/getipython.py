@@ -1,8 +1,11 @@
 class IP:
     def __init__(self):
-        from ...kernel import KERNEL
+        from akernel.kernel import KERNEL
 
         self.kernel = KERNEL
+
+    def showtraceback(self):
+        pass
 
 
 def get_ipython():

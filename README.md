@@ -5,9 +5,18 @@
 
 An asynchronous Python Jupyter kernel.
 
+## Motivation
+
+[ipykernel](https://github.com/ipython/ipykernel) offers the ability to
+[run asynchronous code from the REPL](https://ipython.readthedocs.io/en/stable/interactive/autoawait.html).
+This means you can `await` at the top-level, outside of a function. Unfortunately, this will still
+block the kernel.
+
+akernel changes this behavior by launching each cell in a task.
+
 ## Features
 
-`akernel` allows for asynchronous code execution. What this means is that when used in a Jupyter
+akernel allows for asynchronous code execution. What this means is that when used in a Jupyter
 notebook, you can run cells concurrently if the code is cooperative. For instance, you can run a
 cell with the following code:
 
@@ -45,7 +54,7 @@ It is still a work in progress, and a bit hacky. In particular:
 
 - Error tracebacks are a bit messy.
 - If a cell wants to access a variable of another running cell, this variable must exist before the
-  execution of both cells.
+  execution of both cells, or be declared as `global` by the cell assigning to it.
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
 - No rich representation for now, only the standard `__repr__` is supported. This means no
   matplotlib figure yet :-( But ipywidgets should work!

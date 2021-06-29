@@ -3,14 +3,3 @@ channels:
     - conda-forge
 dependencies:
     - pip
-    - pyzmq
-    - typer
-    - click <8
-    - pytest
-    - pytest-asyncio
-    - flake8
-    - black
-    - mypy
-    - types-python-dateutil
-    - pip:
-      - git+https://github.com/davidbrochart/kernel_driver.git#egg=kernel_driver

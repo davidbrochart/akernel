@@ -39,6 +39,7 @@ setup(
             "pytest",
             "pytest-asyncio",
             "types-python-dateutil",
+            "kernel_driver @ https://github.com/davidbrochart/kernel_driver/archive/main.zip",
         ],
     },
     entry_points={

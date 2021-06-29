@@ -24,7 +24,7 @@ class Comm:
         buffers: List[bytes] = [],
         **kwargs
     ):
-        from ..kernel import KERNEL, PARENT_HEADER_VAR, Kernel
+        from akernel.kernel import KERNEL, PARENT_HEADER_VAR, Kernel
 
         self.kernel: Kernel = KERNEL
         self._closed = True

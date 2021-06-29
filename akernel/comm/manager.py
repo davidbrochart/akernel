@@ -9,7 +9,7 @@ class CommManager:
     targets: Dict[str, Callable]
 
     def __init__(self):
-        from ..kernel import KERNEL, Kernel
+        from akernel.kernel import KERNEL, Kernel
 
         self.kernel: Kernel = KERNEL
         self.comms = {}

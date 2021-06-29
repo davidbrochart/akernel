@@ -36,8 +36,7 @@ jobs:
 
     - name: Install akernel
       run: |
-        pip install -e .
-        pip install https://github.com/davidbrochart/kernel_driver/archive/main.zip --ignore-installed
+        pip install .[test]
 
     - name: Check style
       run: |
@@ -48,6 +47,5 @@ jobs:
       run: |
         mypy akernel
         akernel --help
-        akernel install python
         test -f ${CONDA_PREFIX}/share/jupyter/kernels/akernel/kernel.json
-        py.test akernel/tests
+        pytest akernel/tests
