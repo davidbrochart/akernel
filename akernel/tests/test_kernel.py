@@ -1,6 +1,7 @@
 import os
 import asyncio
 import signal
+from textwrap import dedent
 
 import pytest
 from kernel_driver import KernelDriver  # type: ignore
@@ -144,3 +145,28 @@ async def test_repr(capfd):
 
     out, err = capfd.readouterr()
     assert out == "3\n"
+
+
+@pytest.mark.asyncio
+async def test_globals(capfd):
+    code = dedent(
+        """\
+        a = 1
+        def foo():
+            global a
+            a = 2
+        foo()
+        print(a)
+        def bar():
+            a = 3
+        bar()
+        print(a)
+    """
+    )
+    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+    await kd.start(startup_timeout=TIMEOUT)
+    await kd.execute(code, timeout=TIMEOUT)
+    await kd.stop()
+
+    out, err = capfd.readouterr()
+    assert out == "2\n2\n"
