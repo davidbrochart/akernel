@@ -3,7 +3,6 @@ import platform
 import asyncio
 import json
 import traceback
-import ast
 from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, cast
@@ -17,6 +16,7 @@ import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
+from .code import make_async
 from ._version import __version__
 
 
@@ -29,47 +29,6 @@ sys.modules["ipykernel.comm"] = comm
 sys.modules["IPython.display"] = display
 sys.modules["IPython"] = akernel.IPython
 sys.modules["IPython.core"] = core
-
-
-def make_async(code: str, globals_: Dict[str, Any]) -> str:
-    async_code = ["async def __async_cell__():"]
-    if globals_:
-        async_code += ["    global " + ", ".join(globals_.keys())]
-    async_code += ["    __result__ = None"]
-    async_code += ["    __exception__ = None"]
-    async_code += ["    __interrupted__ = False"]
-    async_code += ["    try:"]
-    code_lines = code.splitlines()
-    async_code += ["        " + line for line in code_lines[:-1]]
-    last_line = code_lines[-1]
-    return_value = False
-    if not last_line.startswith((" ", "\t")):
-        try:
-            n = ast.parse(last_line)
-        except Exception:
-            pass
-        else:
-            if n.body and type(n.body[0]) is ast.Expr:
-                return_value = True
-    if return_value:
-        async_code += ["        __result__ = " + last_line]
-    else:
-        async_code += ["        " + last_line]
-    async_code += ["    except asyncio.CancelledError:"]
-    async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
-    async_code += ["        __interrupted__ = True"]
-    async_code += ["    except KeyboardInterrupt:"]
-    async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
-    async_code += ["        __interrupted__ = True"]
-    async_code += ["    except Exception as e:"]
-    async_code += ["        __exception__ = e"]
-    async_code += ["    globals().update(locals())"]
-    async_code += ["    del globals()['__result__']"]
-    async_code += ["    del globals()['__exception__']"]
-    async_code += ["    if __exception__ is None:"]
-    async_code += ["        return __result__"]
-    async_code += ["    raise __exception__"]
-    return "\n".join(async_code)
 
 
 class Kernel:
@@ -205,7 +164,7 @@ class Kernel:
                     content={"code": code, "execution_count": self.execution_count},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-                async_code = make_async(code, self.globals)
+                async_code = make_async(code)
                 try:
                     exec(async_code, self.globals, self.locals)
                 except Exception as e:

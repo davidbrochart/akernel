@@ -53,8 +53,6 @@ print("cell 1 has run")
 It is still a work in progress, and a bit hacky. In particular:
 
 - Error tracebacks are a bit messy.
-- If a cell wants to access a variable of another running cell, this variable must exist before the
-  execution of both cells, or be declared as `global` by the cell assigning to it.
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
 - No rich representation for now, only the standard `__repr__` is supported. This means no
   matplotlib figure yet :-( But ipywidgets should work!
