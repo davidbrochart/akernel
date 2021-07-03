@@ -1,1 +1,1 @@
-from .core import get_ipython  # noqa
+from .core.getipython import get_ipython  # noqa

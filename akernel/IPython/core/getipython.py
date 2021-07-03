@@ -7,6 +7,9 @@ class IP:
     def showtraceback(self):
         pass
 
+    def register_post_execute(self, func):
+        pass
+
 
 def get_ipython():
     return IP()

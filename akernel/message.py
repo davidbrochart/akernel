@@ -6,7 +6,7 @@ from typing import List, Dict, Tuple, Any, Optional
 
 from zmq.utils import jsonapi
 from zmq.sugar.socket import Socket
-from dateutil.parser import parse as dateutil_parse
+from dateutil.parser import parse as dateutil_parse  # type: ignore
 
 
 protocol_version_info = (5, 3)

@@ -252,15 +252,18 @@ class Kernel:
         else:
             if result is not None:
                 self.globals["_"] = result
-                if getattr(result, "_ipython_display_", None) is None:
+                if getattr(result, "_repr_mimebundle_", None) is not None:
+                    data = result._repr_mimebundle_()
+                    display.display(data, raw=True)
+                elif getattr(result, "_ipython_display_", None) is not None:
+                    result._ipython_display_()
+                else:
                     msg = create_message(
                         "stream",
                         parent_header=parent_header,
                         content={"name": "stdout", "text": f"{repr(result)}\n"},
                     )
                     send_message(msg, self.iopub_channel, self.key)
-                else:
-                    result._ipython_display_()
         finally:
             self.finish_execution(idents, parent_header, exception=exception)
             if task_i in self.running_cells:
