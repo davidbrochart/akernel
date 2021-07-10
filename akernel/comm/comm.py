@@ -18,6 +18,8 @@ class Comm:
 
     def __init__(
         self,
+        comm_id: Optional[str] = None,
+        primary: Optional[bool] = None,
         target_name: str = "",
         data: Dict[str, Any] = {},
         metadata: Dict[str, Any] = {},
@@ -30,9 +32,15 @@ class Comm:
         self._closed = True
         self._msg_callback = None
         self._close_callback = None
-        self.comm_id = uuid.uuid4().hex
+        if comm_id is None:
+            self.comm_id = uuid.uuid4().hex
+        else:
+            self.comm_id = comm_id
         self.topic = ("comm-" + self.comm_id).encode("ascii")
-        self.primary = True
+        if primary is None:
+            self.primary = True
+        else:
+            self.primary = primary
         self.target_name = target_name
         self.target_module = None
         self.parent_header = PARENT_HEADER_VAR.get()

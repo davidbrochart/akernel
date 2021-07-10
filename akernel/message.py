@@ -56,6 +56,8 @@ def create_message(
     session_id: str = "",
     msg_cnt: int = 0,
 ) -> Dict[str, Any]:
+    if parent_header:
+        session_id = parent_header["session"]
     header = create_message_header(msg_type, session_id, msg_cnt)
     msg = {
         "header": header,
