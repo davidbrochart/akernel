@@ -43,9 +43,9 @@ If cell 2 was blocking, cell 1 would pause until cell 2 was finished. You can se
 You can make a cell wait for the previous one to be finished with:
 
 ```python
-# cell 2
-await __task__()  # wait for cell 1 to be finished
-print("cell 1 has run")
+# cell 3
+await __task__()  # wait for cell 2 to be finished
+print("cell 2 has run")
 ```
 
 ## Limitations

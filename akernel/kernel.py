@@ -5,7 +5,7 @@ import json
 import traceback
 from io import StringIO
 from contextvars import ContextVar
-from typing import Dict, Any, List, Optional, Union, cast
+from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
 from zmq.sugar.socket import Socket
 
@@ -165,7 +165,7 @@ class Kernel:
                 )
                 send_message(msg, self.iopub_channel, self.key)
                 if self.interrupted:
-                    self.finish_execution(idents, parent_header, no_exec=True)
+                    self.finish_execution(idents, parent_header, None, no_exec=True)
                     continue
                 msg = self.create_message(
                     "execute_input",
@@ -177,13 +177,18 @@ class Kernel:
                 try:
                     exec(async_code, self.globals, self.locals)
                 except Exception as e:
-                    self.finish_execution(idents, parent_header, exception=e)
+                    self.finish_execution(
+                        idents, parent_header, self.execution_count, exception=e
+                    )
                 else:
                     task = asyncio.create_task(
-                        self.execute_code(idents, parent_header, self.task_i)
+                        self.execute_code(
+                            idents, parent_header, self.task_i, self.execution_count
+                        )
                     )
                     self.running_cells[self.task_i] = task
                     self.task_i += 1
+                    self.execution_count += 1
             elif msg_type == "comm_info_request":
                 self.execution_state = "busy"
                 msg2 = self.create_message(
@@ -244,7 +249,11 @@ class Kernel:
                 self.stop.set()
 
     async def execute_code(
-        self, idents: List[bytes], parent_header: Dict[str, Any], task_i: int
+        self,
+        idents: List[bytes],
+        parent_header: Dict[str, Any],
+        task_i: int,
+        execution_count: int,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         exception = None
@@ -270,7 +279,9 @@ class Kernel:
                     )
                     send_message(msg, self.iopub_channel, self.key)
         finally:
-            self.finish_execution(idents, parent_header, exception=exception)
+            self.finish_execution(
+                idents, parent_header, execution_count, exception=exception
+            )
             if task_i in self.running_cells:
                 del self.running_cells[task_i]
 
@@ -278,15 +289,13 @@ class Kernel:
         self,
         idents: List[bytes],
         parent_header: Dict[str, Any],
+        execution_count: Optional[int],
         exception: Optional[Exception] = None,
         no_exec: bool = False,
     ) -> None:
-        execution_count: Optional[int] = self.execution_count
         if no_exec:
             status = "aborted"
-            execution_count = None
         else:
-            self.execution_count += 1
             if exception is None:
                 status = "ok"
             else:
@@ -312,14 +321,14 @@ class Kernel:
         )
         send_message(msg, self.iopub_channel, self.key)
 
-    async def task(self, cell_i: int = -1) -> None:
+    def task(self, cell_i: int = -1) -> Awaitable:
         if cell_i < 0:
             i = self.task_i - 1 + cell_i
         else:
             i = cell_i
-        if i not in self.running_cells:
-            return
-        await self.running_cells[i]
+        if i in self.running_cells:
+            return self.running_cells[i]
+        return asyncio.sleep(0)
 
     def print(
         self,
