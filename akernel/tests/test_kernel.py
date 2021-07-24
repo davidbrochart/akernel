@@ -90,27 +90,42 @@ async def test_chained_cells(capfd):
 async def test_interrupt_async(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    # n0, n1 = 2, 3  # FIXME: this test should pass
-    n0, n1 = 1, 3
+    expected = []
+    n0, n1 = 2, 3
     for i0 in range(n0):
         for i1 in range(n1):
-            asyncio.create_task(kd.execute("await asyncio.sleep(1)", timeout=TIMEOUT))
+            asyncio.create_task(
+                kd.execute(
+                    f"print('{i0} {i1} before')\nawait asyncio.sleep(1)\nprint('{i0} {i1} after')",
+                    timeout=TIMEOUT,
+                )
+            )
+            expected.append(f"{i0} {i1} before")
         await asyncio.sleep(0.1)
         kd.kernel_process.send_signal(signal.SIGINT)
         await asyncio.sleep(0.1)
     await kd.stop()
 
+    expected = "\n".join(expected) + "\n"
     out, err = capfd.readouterr()
-    assert err.splitlines().count("Kernel interrupted") == n0 * n1
+    assert out == expected
 
 
 @pytest.mark.asyncio
 async def test_interrupt_chained(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(kd.execute("await asyncio.sleep(1)", timeout=TIMEOUT))
     asyncio.create_task(
-        kd.execute("await __task__()\nawait asyncio.sleep(1)", timeout=TIMEOUT)
+        kd.execute(
+            "print('before 0')\nawait asyncio.sleep(1)\nprint('after 0')",
+            timeout=TIMEOUT,
+        )
+    )
+    asyncio.create_task(
+        kd.execute(
+            "await __task__()\nprint('before 1')\nawait asyncio.sleep(1)\nprint('after 1')",
+            timeout=TIMEOUT,
+        )
     )
     await asyncio.sleep(0.1)
     kd.kernel_process.send_signal(signal.SIGINT)
@@ -118,22 +133,31 @@ async def test_interrupt_chained(capfd):
     await kd.stop()
 
     out, err = capfd.readouterr()
-    assert err.splitlines().count("Kernel interrupted") == 2
+    assert out == "before 0\n"
 
 
 @pytest.mark.asyncio
 async def test_interrupt_blocking(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(kd.execute("import time\ntime.sleep(1)", timeout=TIMEOUT))
-    asyncio.create_task(kd.execute("time.sleep(1)", timeout=TIMEOUT))
+    asyncio.create_task(
+        kd.execute(
+            "import time\nprint('before 0')\ntime.sleep(1)\nprint('after 0')",
+            timeout=TIMEOUT,
+        )
+    )
+    asyncio.create_task(
+        kd.execute(
+            "print('before 1')\ntime.sleep(1)\nprint('after 1')", timeout=TIMEOUT
+        )
+    )
     await asyncio.sleep(0.1)
     kd.kernel_process.send_signal(signal.SIGINT)
     await asyncio.sleep(0.1)
     await kd.stop()
 
     out, err = capfd.readouterr()
-    assert err.splitlines().count("Kernel interrupted") == 1
+    assert out == "before 0\n"
 
 
 @pytest.mark.asyncio

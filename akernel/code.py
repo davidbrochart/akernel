@@ -7,12 +7,10 @@ def make_async(code: str) -> str:
     async_code = ["async def __async_cell__():"]
     global_vars = get_globals(code)
     if global_vars:
-        async_code += ["    global " + ", ".join(global_vars)]
-    async_code += ["    __result__ = None"]
-    async_code += ["    __exception__ = None"]
-    async_code += ["    __interrupted__ = False"]
-    async_code += ["    try:"]
-    async_code += ["        " + line for line in code_lines[:-1]]
+        async_code.append("    global " + ", ".join(global_vars))
+    else:
+        async_code.append("    # no global variable")
+    async_code += ["    " + line for line in code_lines[:-1]]
     last_line = code_lines[-1]
     return_value = False
     if not last_line.startswith((" ", "\t")):
@@ -24,23 +22,9 @@ def make_async(code: str) -> str:
             if n.body and type(n.body[0]) is ast.Expr:
                 return_value = True
     if return_value:
-        async_code += ["        __result__ = " + last_line]
+        async_code.append("    return " + last_line)
     else:
-        async_code += ["        " + last_line]
-    async_code += ["    except asyncio.CancelledError:"]
-    async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
-    async_code += ["        __interrupted__ = True"]
-    async_code += ["    except KeyboardInterrupt:"]
-    async_code += ["        __exception__ = RuntimeError('Kernel interrupted')"]
-    async_code += ["        __interrupted__ = True"]
-    async_code += ["    except Exception as e:"]
-    async_code += ["        __exception__ = e"]
-    async_code += ["    globals().update(locals())"]
-    async_code += ["    del globals()['__result__']"]
-    async_code += ["    del globals()['__exception__']"]
-    async_code += ["    if __exception__ is None:"]
-    async_code += ["        return __result__"]
-    async_code += ["    raise __exception__"]
+        async_code.append("    " + last_line)
     return "\n".join(async_code)
 
 

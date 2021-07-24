@@ -65,9 +65,7 @@ class Kernel:
         self.execution_state = "starting"
         self.globals = {
             "asyncio": asyncio,
-            "sys": sys,
             "print": self.print,
-            "__interrupted__": False,
             "__task__": self.task,
             "_": None,
         }
@@ -76,53 +74,64 @@ class Kernel:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
         self.restart = False
-        init = True
+        self.interrupted = False
+        self.msg_cnt = 0
+        self.shell_channel = connect_channel("shell", self.connection_cfg)
+        self.iopub_channel = connect_channel("iopub", self.connection_cfg)
+        self.control_channel = connect_channel("control", self.connection_cfg)
+        msg = self.create_message(
+            "status", content={"execution_state": self.execution_state}
+        )
+        send_message(msg, self.iopub_channel, self.key)
+        self.execution_state = "idle"
+        self.stop = asyncio.Event()
         while True:
             try:
-                self.loop.run_until_complete(self.main(init))
+                self.loop.run_until_complete(self.main())
             except KeyboardInterrupt:
-                for task in self.running_cells.values():
-                    task.cancel()
-                self.running_cells = {}
+                self.interrupt()
             else:
                 if not self.restart:
                     break
             finally:
-                init = False
+                self.shell_task.cancel()
+                self.control_task.cancel()
 
-    async def main(self, init: bool) -> None:
-        if init:
-            self.shell_channel = connect_channel("shell", self.connection_cfg)
-            self.iopub_channel = connect_channel("iopub", self.connection_cfg)
-            self.control_channel = connect_channel("control", self.connection_cfg)
-            msg = create_message(
-                "status", content={"execution_state": self.execution_state}
-            )
-            send_message(msg, self.iopub_channel, self.key)
-            self.execution_state = "idle"
-            self.stop = asyncio.Event()
-            asyncio.create_task(self.listen_shell())
-            asyncio.create_task(self.listen_control())
+    def interrupt(self):
+        self.interrupted = True
+        for task in self.running_cells.values():
+            task.cancel()
+        self.running_cells = {}
+
+    async def main(self) -> None:
+        self.shell_task = asyncio.create_task(self.listen_shell())
+        self.control_task = asyncio.create_task(self.listen_control())
         while True:
+            # run until shutdown request
             await self.stop.wait()
             if self.restart:
+                # kernel restart
                 self.stop.clear()
             else:
+                # kernel shutdown
                 break
 
     async def listen_shell(self) -> None:
         while True:
-            if self.globals["__interrupted__"] and not await check_message(
-                self.shell_channel
-            ):
-                self.globals["__interrupted__"] = False
+            # let a chance to execute a blocking cell
+            await asyncio.sleep(0)
+            # if there was a blocking cell execution, and it was interrupted,
+            # let's ignore all the following execution requests until the pipe
+            # is empty
+            if self.interrupted and not await check_message(self.shell_channel):
+                self.interrupted = False
             res = await receive_message(self.shell_channel)
             assert res is not None
             idents, msg = res
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             if msg_type == "kernel_info_request":
-                msg = create_message(
+                msg = self.create_message(
                     "kernel_info_reply",
                     parent_header=parent_header,
                     content={
@@ -140,25 +149,25 @@ class Kernel:
                     },
                 )
                 send_message(msg, self.shell_channel, self.key, idents[0])
-                msg = create_message(
+                msg = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
                 send_message(msg, self.iopub_channel, self.key)
             elif msg_type == "execute_request":
-                if self.globals["__interrupted__"]:
-                    self.finish_execution(idents, parent_header, no_exec=True)
-                    continue
                 self.execution_state = "busy"
                 code = msg["content"]["code"]
-                msg = create_message(
+                msg = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-                msg = create_message(
+                if self.interrupted:
+                    self.finish_execution(idents, parent_header, no_exec=True)
+                    continue
+                msg = self.create_message(
                     "execute_input",
                     parent_header=parent_header,
                     content={"code": code, "execution_count": self.execution_count},
@@ -177,7 +186,7 @@ class Kernel:
                     self.task_i += 1
             elif msg_type == "comm_info_request":
                 self.execution_state = "busy"
-                msg2 = create_message(
+                msg2 = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
@@ -186,7 +195,7 @@ class Kernel:
                 if "target_name" in msg["content"]:
                     target_name = msg["content"]["target_name"]
                     comms: List[str] = []
-                    msg2 = create_message(
+                    msg2 = self.create_message(
                         "comm_info_reply",
                         parent_header=parent_header,
                         content={
@@ -199,7 +208,7 @@ class Kernel:
                     )
                     send_message(msg2, self.shell_channel, self.key, idents[0])
                 self.execution_state = "idle"
-                msg2 = create_message(
+                msg2 = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
@@ -217,7 +226,7 @@ class Kernel:
             parent_header = msg["header"]
             if msg_type == "shutdown_request":
                 self.restart = msg["content"]["restart"]
-                msg = create_message(
+                msg = self.create_message(
                     "shutdown_reply",
                     parent_header=parent_header,
                     content={"restart": self.restart},
@@ -226,9 +235,7 @@ class Kernel:
                 if self.restart:
                     self.globals = {
                         "asyncio": asyncio,
-                        "sys": sys,
                         "print": self.print,
-                        "__interrupted__": False,
                         "__task__": self.task,
                         "_": None,
                     }
@@ -243,12 +250,10 @@ class Kernel:
         exception = None
         try:
             result = await self.locals["__async_cell__"]()
+        except KeyboardInterrupt:
+            self.interrupt()
         except Exception as e:
             exception = e
-            if self.globals["__interrupted__"]:
-                for task in self.running_cells.values():
-                    task.cancel()
-                self.running_cells = {}
         else:
             if result is not None:
                 self.globals["_"] = result
@@ -258,7 +263,7 @@ class Kernel:
                 elif getattr(result, "_ipython_display_", None) is not None:
                     result._ipython_display_()
                 else:
-                    msg = create_message(
+                    msg = self.create_message(
                         "stream",
                         parent_header=parent_header,
                         content={"name": "stdout", "text": f"{repr(result)}\n"},
@@ -278,7 +283,7 @@ class Kernel:
     ) -> None:
         execution_count: Optional[int] = self.execution_count
         if no_exec:
-            status = "ok"
+            status = "aborted"
             execution_count = None
         else:
             self.execution_count += 1
@@ -287,20 +292,20 @@ class Kernel:
             else:
                 status = "error"
                 tb = "".join(traceback.format_tb(exception.__traceback__))
-                msg = create_message(
+                msg = self.create_message(
                     "stream",
                     parent_header=parent_header,
                     content={"name": "stderr", "text": f"{tb}{exception}\n"},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-        msg = create_message(
+        msg = self.create_message(
             "execute_reply",
             parent_header=parent_header,
             content={"status": status, "execution_count": execution_count},
         )
         send_message(msg, self.shell_channel, self.key, idents[0])
         self.execution_state = "idle"
-        msg = create_message(
+        msg = self.create_message(
             "status",
             parent_header=parent_header,
             content={"execution_state": self.execution_state},
@@ -315,8 +320,6 @@ class Kernel:
         if i not in self.running_cells:
             return
         await self.running_cells[i]
-        if self.globals["__interrupted__"]:
-            raise RuntimeError("Kernel interrupted")
 
     def print(
         self,
@@ -337,9 +340,21 @@ class Kernel:
         print(*objects, sep=sep, end=end, file=f, flush=True)
         text = f.getvalue()
         f.close()
-        msg = create_message(
+        msg = self.create_message(
             "stream",
             parent_header=PARENT_HEADER_VAR.get(),
             content={"name": name, "text": text},
         )
         send_message(msg, self.iopub_channel, self.key)
+
+    def create_message(
+        self,
+        msg_type: str,
+        content: Dict = {},
+        parent_header: Dict[str, Any] = {},
+    ) -> Dict[str, Any]:
+        msg = create_message(
+            msg_type, content=content, parent_header=parent_header, msg_cnt=self.msg_cnt
+        )
+        self.msg_cnt += 1
+        return msg
