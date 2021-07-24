@@ -2,7 +2,6 @@ import sys
 import platform
 import asyncio
 import json
-import traceback
 from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
@@ -17,6 +16,7 @@ from akernel.IPython import core
 from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
 from .code import make_async
+from .traceback import get_traceback
 from ._version import __version__
 
 
@@ -173,17 +173,27 @@ class Kernel:
                     content={"code": code, "execution_count": self.execution_count},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-                async_code = make_async(code)
+                return_value, async_code = make_async(code)
                 try:
                     exec(async_code, self.globals, self.locals)
                 except Exception as e:
                     self.finish_execution(
-                        idents, parent_header, self.execution_count, exception=e
+                        idents,
+                        parent_header,
+                        self.execution_count,
+                        exception=e,
+                        code=code,
+                        return_value=return_value,
                     )
                 else:
                     task = asyncio.create_task(
                         self.execute_code(
-                            idents, parent_header, self.task_i, self.execution_count
+                            idents,
+                            parent_header,
+                            self.task_i,
+                            self.execution_count,
+                            code,
+                            return_value,
                         )
                     )
                     self.running_cells[self.task_i] = task
@@ -254,15 +264,18 @@ class Kernel:
         parent_header: Dict[str, Any],
         task_i: int,
         execution_count: int,
+        code: str,
+        return_value: bool,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
-        exception = None
+        traceback, exception = None, None
         try:
             result = await self.locals["__async_cell__"]()
         except KeyboardInterrupt:
             self.interrupt()
         except Exception as e:
             exception = e
+            traceback = get_traceback(code, return_value)
         else:
             if result is not None:
                 self.globals["_"] = result
@@ -280,7 +293,11 @@ class Kernel:
                     send_message(msg, self.iopub_channel, self.key)
         finally:
             self.finish_execution(
-                idents, parent_header, execution_count, exception=exception
+                idents,
+                parent_header,
+                execution_count,
+                exception=exception,
+                traceback=traceback,
             )
             if task_i in self.running_cells:
                 del self.running_cells[task_i]
@@ -292,19 +309,50 @@ class Kernel:
         execution_count: Optional[int],
         exception: Optional[Exception] = None,
         no_exec: bool = False,
+        traceback: Optional[List[str]] = None,
+        code: Optional[str] = None,
+        return_value: bool = False,
     ) -> None:
         if no_exec:
             status = "aborted"
         else:
-            if exception is None:
+            if traceback is None and exception is None:
                 status = "ok"
             else:
                 status = "error"
-                tb = "".join(traceback.format_tb(exception.__traceback__))
-                msg = self.create_message(
-                    "stream",
+                assert exception is not None
+                assert exception.args is not None
+                if type(exception) is SyntaxError:
+                    assert exception.lineno is not None
+                    assert exception.text is not None
+                    assert exception.offset is not None
+                    if exception.filename == "<string>":
+                        assert code is not None
+                        code_lines = code.splitlines()
+                        lineno = exception.lineno - 2
+                        if return_value and lineno == len(code_lines) + 1:
+                            lineno -= 1
+                        text = code_lines[lineno - 1].rstrip()
+                        offset = exception.offset - 5
+                    else:
+                        lineno = exception.lineno
+                        text = exception.text.rstrip()
+                        offset = exception.offset - 1
+                    traceback = [
+                        f"File {exception.filename}, line {lineno}:",
+                        text,
+                        offset * " " + "^",
+                    ]
+                assert traceback is not None
+                msg = create_message(
+                    "error",
                     parent_header=parent_header,
-                    content={"name": "stderr", "text": f"{tb}{exception}\n"},
+                    content={
+                        "ename": type(exception).__name__,
+                        "evalue": exception.args[0],
+                        "traceback": traceback
+                        + [f"{type(exception).__name__}: {exception.args[0]}"],
+                    },
                 )
                 send_message(msg, self.iopub_channel, self.key)
         msg = self.create_message(

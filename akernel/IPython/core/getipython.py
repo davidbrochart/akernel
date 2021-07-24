@@ -1,4 +1,4 @@
-class IP:
+class Ip:
     def __init__(self):
         from akernel.kernel import KERNEL
 
@@ -11,5 +11,11 @@ class IP:
         pass
 
 
+IP = None
+
+
 def get_ipython():
-    return IP()
+    global IP
+    if IP is None:
+        IP = Ip()
+    return IP
