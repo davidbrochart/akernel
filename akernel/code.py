@@ -1,8 +1,8 @@
 import ast
-from typing import Set
+from typing import Set, Tuple
 
 
-def make_async(code: str) -> str:
+def make_async(code: str) -> Tuple[bool, str]:
     code_lines = code.splitlines()
     async_code = ["async def __async_cell__():"]
     global_vars = get_globals(code)
@@ -22,10 +22,12 @@ def make_async(code: str) -> str:
             if n.body and type(n.body[0]) is ast.Expr:
                 return_value = True
     if return_value:
+        async_code.append("    globals().update(locals())")
         async_code.append("    return " + last_line)
     else:
         async_code.append("    " + last_line)
-    return "\n".join(async_code)
+        async_code.append("    globals().update(locals())")
+    return return_value, "\n".join(async_code)
 
 
 def get_globals(code: str) -> Set[str]:
@@ -68,8 +70,8 @@ class GlobalUseCollector(ast.NodeVisitor):
         self.context.pop()
 
     def visit_Global(self, node):
-        assert self.context[-1][0] == "function"
-        self.context[-1][1].update(node.names)
+        if self.context[-1][0] == "function":
+            self.context[-1][1].update(node.names)
 
     def visit_Name(self, node):
         ctx, g = self.context[-1]
