@@ -50,9 +50,8 @@ print("cell 2 has run")
 
 ## Limitations
 
-It is still a work in progress, and a bit hacky. In particular:
+It is still a work in progress, in particular:
 
-- Error tracebacks are a bit messy.
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
 - No rich representation for now, only the standard `__repr__` is supported. This means no
   matplotlib figure yet :-( But ipywidgets should work!
