@@ -30,6 +30,7 @@ setup(
         "typer",
         "click<8",
         "python-dateutil",
+        "colorama",
     ],
     extras_require={
         "test": [

@@ -1,6 +1,7 @@
 import os
 import asyncio
 import signal
+import re
 from textwrap import dedent
 
 import pytest
@@ -13,6 +14,9 @@ KERNELSPEC_PATH = (
 )
 
 
+ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
 @pytest.mark.asyncio
 async def test_syntax_error(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
@@ -21,9 +25,10 @@ async def test_syntax_error(capfd):
     await kd.stop()
 
     out, err = capfd.readouterr()
-    assert err == dedent(
+    # ignore colors
+    assert ANSI_ESCAPE.sub("", err) == dedent(
         """\
-        File <string>, line 1:
+        Cell 1, line 1:
         foo bar
             ^
         SyntaxError: invalid syntax
@@ -39,10 +44,11 @@ async def test_name_not_defined(capfd):
     await kd.stop()
 
     out, err = capfd.readouterr()
-    assert err == dedent(
+    # ignore colors
+    assert ANSI_ESCAPE.sub("", err) == dedent(
         """\
         Traceback (most recent call last):
-        <string> in <module> at line 1:
+        Cell 1 in <module>, line 1:
         foo
         NameError: name 'foo' is not defined
         """

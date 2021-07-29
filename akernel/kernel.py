@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
 from zmq.sugar.socket import Socket
+from colorama import Fore, Style  # type: ignore
 
 from akernel.comm import comm
 from akernel.comm.manager import CommManager
@@ -275,7 +276,7 @@ class Kernel:
             self.interrupt()
         except Exception as e:
             exception = e
-            traceback = get_traceback(code, return_value)
+            traceback = get_traceback(code, return_value, execution_count)
         else:
             if result is not None:
                 self.globals["_"] = result
@@ -326,7 +327,10 @@ class Kernel:
                     assert exception.lineno is not None
                     assert exception.text is not None
                     assert exception.offset is not None
-                    if exception.filename == "<string>":
+                    filename = exception.filename
+                    if filename == "<string>":
+                        filename = f"{Fore.CYAN}Cell{Style.RESET_ALL} {Fore.GREEN}{execution_count}"
+                        f"{Style.RESET_ALL}"
                         assert code is not None
                         code_lines = code.splitlines()
                         lineno = exception.lineno - 2
@@ -335,12 +339,17 @@ class Kernel:
                         text = code_lines[lineno - 1].rstrip()
                         offset = exception.offset - 5
                     else:
+                        filename = (
+                            f"{Fore.CYAN}File{Style.RESET_ALL} {Fore.GREEN}{filename}"
+                        )
+                        f"{Style.RESET_ALL}"
                         lineno = exception.lineno
                         text = exception.text.rstrip()
                         offset = exception.offset - 1
                     traceback = [
-                        f"File {exception.filename}, line {lineno}:",
-                        text,
+                        f"{filename}, {Fore.CYAN}line{Style.RESET_ALL} {Fore.GREEN}{lineno}"
+                        f"{Style.RESET_ALL}:",
+                        f"{Fore.RED}{text}{Style.RESET_ALL}",
                         offset * " " + "^",
                     ]
                 assert traceback is not None
@@ -351,7 +360,10 @@ class Kernel:
                         "ename": type(exception).__name__,
                         "evalue": exception.args[0],
                         "traceback": traceback
-                        + [f"{type(exception).__name__}: {exception.args[0]}"],
+                        + [
+                            f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
+                            f"{exception.args[0]}"
+                        ],
                     },
                 )
                 send_message(msg, self.iopub_channel, self.key)
