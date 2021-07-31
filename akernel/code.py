@@ -1,19 +1,65 @@
+import copy
+
 import ast
 import gast  # type: ignore
 from types import CodeType
+from textwrap import dedent
+
+
+code_declare = dedent(
+    """
+    if "a" not in globals() and "a" not in locals():
+        a = ipyx.X()
+    """
+).strip()
+
+code_assign = dedent(
+    """
+    if "a" not in globals() and "a" not in locals():
+        a = b
+    else:
+        a.v = c
+    """
+).strip()
+
+body_declare = gast.parse(code_declare).body
+body_assign = gast.parse(code_assign).body
+
+
+def get_declare_body(lhs: str):
+    body = copy.deepcopy(body_declare)
+    body[0].test.values[0].left.value = lhs  # type: ignore
+    body[0].test.values[1].left.value = lhs  # type: ignore
+    body[0].body[0].targets[0].id = lhs  # type: ignore
+    return body
+
+
+def get_assign_body(lhs: str, rhs, v_rhs):
+    body = copy.deepcopy(body_assign)
+    body[0].test.values[0].left.value = lhs  # type: ignore
+    body[0].test.values[1].left.value = lhs  # type: ignore
+    body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[0].body[0].value = rhs  # type: ignore
+    body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
+    v_transformer = VTransformer()
+    v_transformer.visit(v_rhs)
+    body[0].orelse[0].value = v_rhs  # type: ignore
+    return body
+
 
 body_globals_update_locals = gast.parse("globals().update(locals())").body
 
 
 class Transform:
-    def __init__(self, source: str) -> None:
-        self.tree = ast.parse(source)
-        self.gtree = gast.ast_to_gast(self.tree)
+    def __init__(self, code: str, react: bool = False) -> None:
+        self.gtree = gast.parse(code)
         c = GlobalUseCollector()
-        c.visit(self.tree)
+        c.visit(self.gtree)
         self.globals = set(c.globals)
+        if react:
+            self.make_react()
 
-    def get_async_ast(self) -> ast.Module:
+    def get_async_ast(self) -> gast.Module:
         last_statement = self.gtree.body[-1]
         return_value = type(last_statement) is gast.Expr
         new_body = []
@@ -46,31 +92,85 @@ class Transform:
             ),
         ]
         gtree = gast.Module(body=body, type_ignores=[])
-        tree = gast.gast_to_ast(gtree)
-        ast.fix_missing_locations(tree)
-        return tree
+        gast.fix_missing_locations(gtree)
+        return gtree
+
+    def get_code(self) -> str:
+        tree = gast.gast_to_ast(self.gtree)
+        code = ast.unparse(tree)
+        return code
 
     def get_async_code(self) -> str:
-        tree = self.get_async_ast()
+        gtree = self.get_async_ast()
+        tree = gast.gast_to_ast(gtree)
         code = ast.unparse(tree)
         return code
 
     def get_async_bytecode(self) -> CodeType:
-        tree = self.get_async_ast()
+        gtree = self.get_async_ast()
+        tree = gast.gast_to_ast(gtree)
         bytecode = compile(tree, filename="<string>", mode="exec")
         return bytecode
 
-    def get_globals(self) -> set[str]:
-        c = GlobalUseCollector()
-        c.visit(self.tree)
-        return set(c.globals)
+    def make_react(self):
+        for node in gast.walk(self.gtree):
+            if hasattr(node, "body"):
+                new_body = []
+                for i, statement in enumerate(node.body):
+                    if isinstance(statement, gast.Assign):
+                        if len(statement.targets) == 1 and isinstance(
+                            statement.targets[0], gast.Name
+                        ):
+                            original_statement = copy.deepcopy(statement)
+                            rhs_calls = [
+                                n
+                                for n in gast.walk(original_statement.value)
+                                if isinstance(n, gast.Call)
+                            ]
+                            for n in rhs_calls:
+                                n.func.not_var = True
+                            # RHS
+                            rhs_calls = [
+                                n
+                                for n in gast.walk(statement.value)
+                                if isinstance(n, gast.Call)
+                            ]
+                            for n in rhs_calls:
+                                n.func.not_var = True
+                                ipyx_name = gast.Name(id="ipyx", ctx=gast.Load())
+                                ipyx_name.not_var = True
+                                n.func = gast.Call(
+                                    func=gast.Attribute(
+                                        value=ipyx_name, attr="F", ctx=gast.Load()
+                                    ),
+                                    args=[n.func],
+                                    keywords=[],
+                                )
+                            rhs_name_ids = [
+                                n.id
+                                for n in gast.walk(statement.value)
+                                if isinstance(n, gast.Name)
+                                and not hasattr(n, "not_var")
+                            ]
+                            for name_id in rhs_name_ids:
+                                new_body += get_declare_body(name_id)
+                            # LHS
+                            new_body += get_assign_body(
+                                statement.targets[0].id,
+                                statement.value,
+                                original_statement.value,
+                            )
+                            continue
+                    new_body.append(statement)
+                if new_body:
+                    node.body = new_body
 
 
 # see https://stackoverflow.com/questions/43166571/
 # getting-all-the-nodes-from-python-ast-that-correspond-to-a-particular-variable-w
 
 
-class GlobalUseCollector(ast.NodeVisitor):
+class GlobalUseCollector(gast.NodeVisitor):
     def __init__(self):
         self.globals = []
         # track context name and set of names marked as `global`
@@ -103,3 +203,12 @@ class GlobalUseCollector(ast.NodeVisitor):
         ctx, g = self.context[-1]
         if ctx == "global" or node.id in g:
             self.globals.append(node.id)
+
+
+class VTransformer(gast.NodeTransformer):
+    def visit_Name(self, node):
+        if hasattr(node, "not_var"):
+            new_node = node
+        else:
+            new_node = ast.Attribute(value=node, attr="v", ctx=ast.Load())
+        return new_node
