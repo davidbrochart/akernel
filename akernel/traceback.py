@@ -5,7 +5,7 @@ from typing import Optional, cast
 from colorama import Fore, Style  # type: ignore
 
 
-def get_traceback(code: str, return_value: bool, execution_count: int):
+def get_traceback(code: str, exception, execution_count: int = 0):
     exc_info = sys.exc_info()
     tb = cast(types.TracebackType, exc_info[2])
     while True:
@@ -21,17 +21,13 @@ def get_traceback(code: str, return_value: bool, execution_count: int):
         if frame is None:
             break
     stack.reverse()
-    traceback = []
+    traceback = ["Traceback (most recent call last):"]
     for frame in stack:
         filename = frame.f_code.co_filename
         if filename == "<string>":
             filename = f"{Fore.CYAN}Cell{Style.RESET_ALL} {Fore.GREEN}{execution_count}"
             f"{Style.RESET_ALL}"
-            lineno = frame.f_lineno - 2
-            if return_value and lineno == len(code.splitlines()) + 1:
-                lineno -= 1
         else:
-            lineno = frame.f_lineno
             with open(filename) as f:
                 code = f.read()
             filename = f"{Fore.CYAN}File{Style.RESET_ALL} {Fore.GREEN}{filename}{Style.RESET_ALL}"
@@ -41,8 +37,12 @@ def get_traceback(code: str, return_value: bool, execution_count: int):
             name = frame.f_code.co_name
         trace = [
             f"{filename} in {Fore.CYAN}{name}{Style.RESET_ALL}, {Fore.CYAN}line{Style.RESET_ALL} "
-            f"{Fore.GREEN}{lineno}{Style.RESET_ALL}:"
+            f"{Fore.GREEN}{frame.f_lineno}{Style.RESET_ALL}:"
         ]
-        trace.append(code.splitlines()[lineno - 1])
+        trace.append(code.splitlines()[frame.f_lineno - 1])
         traceback += trace
-    return ["Traceback (most recent call last):"] + traceback
+    traceback += [
+        f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
+        f"{exception.args[0]}"
+    ]
+    return traceback

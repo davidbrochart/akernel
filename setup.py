@@ -31,6 +31,7 @@ setup(
         "click<8",
         "python-dateutil",
         "colorama",
+        "gast",
     ],
     extras_require={
         "test": [

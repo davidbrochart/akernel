@@ -42,10 +42,10 @@ jobs:
       run: |
         black --check akernel
         flake8 --max-line-length 100 akernel
+        mypy akernel
 
     - name: Run tests
       run: |
-        mypy akernel
         akernel --help
         test -f ${CONDA_PREFIX}/share/jupyter/kernels/akernel/kernel.json
         pytest akernel/tests
