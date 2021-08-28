@@ -7,7 +7,6 @@ from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
 from zmq.sugar.socket import Socket
-from colorama import Fore, Style  # type: ignore
 
 from akernel.comm import comm
 from akernel.comm.manager import CommManager
@@ -16,7 +15,7 @@ import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
-from .code import make_async
+from .execution import pre_execute
 from .traceback import get_traceback
 from ._version import __version__
 
@@ -174,27 +173,25 @@ class Kernel:
                     content={"code": code, "execution_count": self.execution_count},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-                return_value, async_code = make_async(code)
-                try:
-                    exec(async_code, self.globals, self.locals)
-                except Exception as e:
+                traceback, exception = pre_execute(
+                    code, self.globals, self.locals, self.execution_count
+                )
+                if traceback:
                     self.finish_execution(
                         idents,
                         parent_header,
                         self.execution_count,
-                        exception=e,
-                        code=code,
-                        return_value=return_value,
+                        traceback=traceback,
+                        exception=exception,
                     )
                 else:
                     task = asyncio.create_task(
-                        self.execute_code(
+                        self.execute_and_finish(
                             idents,
                             parent_header,
                             self.task_i,
                             self.execution_count,
                             code,
-                            return_value,
                         )
                     )
                     self.running_cells[self.task_i] = task
@@ -259,24 +256,23 @@ class Kernel:
                     self.execution_count = 1
                 self.stop.set()
 
-    async def execute_code(
+    async def execute_and_finish(
         self,
         idents: List[bytes],
         parent_header: Dict[str, Any],
         task_i: int,
         execution_count: int,
         code: str,
-        return_value: bool,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
-        traceback, exception = None, None
+        traceback, exception = [], None
         try:
             result = await self.locals["__async_cell__"]()
         except KeyboardInterrupt:
             self.interrupt()
         except Exception as e:
             exception = e
-            traceback = get_traceback(code, return_value, execution_count)
+            traceback = get_traceback(code, e, execution_count)
         else:
             if result is not None:
                 self.globals["_"] = result
@@ -310,63 +306,26 @@ class Kernel:
         execution_count: Optional[int],
         exception: Optional[Exception] = None,
         no_exec: bool = False,
-        traceback: Optional[List[str]] = None,
-        code: Optional[str] = None,
-        return_value: bool = False,
+        traceback: List[str] = [],
     ) -> None:
         if no_exec:
             status = "aborted"
         else:
-            if traceback is None and exception is None:
-                status = "ok"
-            else:
+            if traceback:
                 status = "error"
                 assert exception is not None
-                assert exception.args is not None
-                if type(exception) is SyntaxError:
-                    assert exception.lineno is not None
-                    assert exception.text is not None
-                    assert exception.offset is not None
-                    filename = exception.filename
-                    if filename == "<string>":
-                        filename = f"{Fore.CYAN}Cell{Style.RESET_ALL} {Fore.GREEN}{execution_count}"
-                        f"{Style.RESET_ALL}"
-                        assert code is not None
-                        code_lines = code.splitlines()
-                        lineno = exception.lineno - 2
-                        if return_value and lineno == len(code_lines) + 1:
-                            lineno -= 1
-                        text = code_lines[lineno - 1].rstrip()
-                        offset = exception.offset - 5
-                    else:
-                        filename = (
-                            f"{Fore.CYAN}File{Style.RESET_ALL} {Fore.GREEN}{filename}"
-                        )
-                        f"{Style.RESET_ALL}"
-                        lineno = exception.lineno
-                        text = exception.text.rstrip()
-                        offset = exception.offset - 1
-                    traceback = [
-                        f"{filename}, {Fore.CYAN}line{Style.RESET_ALL} {Fore.GREEN}{lineno}"
-                        f"{Style.RESET_ALL}:",
-                        f"{Fore.RED}{text}{Style.RESET_ALL}",
-                        offset * " " + "^",
-                    ]
-                assert traceback is not None
                 msg = create_message(
                     "error",
                     parent_header=parent_header,
                     content={
                         "ename": type(exception).__name__,
                         "evalue": exception.args[0],
-                        "traceback": traceback
-                        + [
-                            f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
-                            f"{exception.args[0]}"
-                        ],
+                        "traceback": traceback,
                     },
                 )
                 send_message(msg, self.iopub_channel, self.key)
+            else:
+                status = "ok"
         msg = self.create_message(
             "execute_reply",
             parent_header=parent_header,

@@ -2,7 +2,7 @@ import uuid
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional, cast
 
 from zmq.utils import jsonapi
 from zmq.sugar.socket import Socket
@@ -120,7 +120,7 @@ def pack(obj: Dict[str, Any]) -> bytes:
 
 
 def unpack(s: bytes) -> Dict[str, Any]:
-    return jsonapi.loads(s)
+    return cast(Dict[str, Any], jsonapi.loads(s))
 
 
 def sign(msg_list: List[bytes], key: str) -> bytes:

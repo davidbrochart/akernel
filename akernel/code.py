@@ -1,43 +1,69 @@
 import ast
-from typing import Set, Tuple
+import gast  # type: ignore
+from types import CodeType
+
+body_globals_update_locals = gast.parse("globals().update(locals())").body
 
 
-def make_async(code: str) -> Tuple[bool, str]:
-    code_lines = code.splitlines()
-    async_code = ["async def __async_cell__():"]
-    global_vars = get_globals(code)
-    if global_vars:
-        async_code.append("    global " + ", ".join(global_vars))
-    else:
-        async_code.append("    # no global variable")
-    async_code += ["    " + line for line in code_lines[:-1]]
-    last_line = code_lines[-1]
-    return_value = False
-    if not last_line.startswith((" ", "\t")):
-        try:
-            n = ast.parse(last_line)
-        except Exception:
-            pass
+class Transform:
+    def __init__(self, source: str) -> None:
+        self.tree = ast.parse(source)
+        self.gtree = gast.ast_to_gast(self.tree)
+        c = GlobalUseCollector()
+        c.visit(self.tree)
+        self.globals = set(c.globals)
+
+    def get_async_ast(self) -> ast.Module:
+        last_statement = self.gtree.body[-1]
+        return_value = type(last_statement) is gast.Expr
+        new_body = []
+        if self.globals:
+            new_body += [gast.Global(names=list(self.globals))]
+        if return_value:
+            new_body += (
+                self.gtree.body[:-1]
+                + body_globals_update_locals
+                + [gast.Return(value=last_statement.value)]
+            )
         else:
-            if n.body and type(n.body[0]) is ast.Expr:
-                return_value = True
-    if return_value:
-        async_code.append("    globals().update(locals())")
-        async_code.append("    return " + last_line)
-    else:
-        async_code.append("    " + last_line)
-        async_code.append("    globals().update(locals())")
-    return return_value, "\n".join(async_code)
+            new_body += self.gtree.body + body_globals_update_locals
+        body = [
+            gast.AsyncFunctionDef(
+                name="__async_cell__",
+                args=gast.arguments(
+                    args=[],
+                    posonlyargs=[],
+                    vararg=None,
+                    kwonlyargs=[],
+                    kw_defaults=[],
+                    kwarg=None,
+                    defaults=[],
+                ),
+                body=new_body,
+                decorator_list=[],
+                returns=None,
+                type_comment=None,
+            ),
+        ]
+        gtree = gast.Module(body=body, type_ignores=[])
+        tree = gast.gast_to_ast(gtree)
+        ast.fix_missing_locations(tree)
+        return tree
 
+    def get_async_code(self) -> str:
+        tree = self.get_async_ast()
+        code = ast.unparse(tree)
+        return code
 
-def get_globals(code: str) -> Set[str]:
-    try:
-        root = ast.parse(code)
-    except Exception:
-        return set()
-    c = GlobalUseCollector()
-    c.visit(root)
-    return set(c.globals)
+    def get_async_bytecode(self) -> CodeType:
+        tree = self.get_async_ast()
+        bytecode = compile(tree, filename="<string>", mode="exec")
+        return bytecode
+
+    def get_globals(self) -> set[str]:
+        c = GlobalUseCollector()
+        c.visit(self.tree)
+        return set(c.globals)
 
 
 # see https://stackoverflow.com/questions/43166571/
