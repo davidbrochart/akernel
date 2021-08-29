@@ -28,9 +28,11 @@ code_assign = dedent(
 
 code_delete = dedent(
     """
-    for name in list(locals().keys()):
-        if name.endswith("_ipyxv"):
-            del locals()[name]
+    for name_ipyxv in list(locals().keys()):
+        if name_ipyxv.endswith("_ipyxv"):
+            del locals()[name_ipyxv]
+    if "name_ipyxv" in locals():
+        del name_ipyxv
     """
 ).strip()
 
@@ -82,13 +84,13 @@ class Transform:
             self.make_react()
 
     def get_async_ast(self) -> gast.Module:
-        return_value = type(self.last_statement) is gast.Expr
         new_body = []
         if self.globals:
             new_body += [gast.Global(names=list(self.globals))]
-        if return_value:
+        if isinstance(self.last_statement, gast.Expr):
+            self.gtree.body.remove(self.last_statement)
             new_body += (
-                self.gtree.body[:-1]
+                self.gtree.body
                 + body_globals_update_locals
                 + [gast.Return(value=self.last_statement.value)]
             )
