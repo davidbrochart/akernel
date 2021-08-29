@@ -3,7 +3,29 @@
 
 # akernel
 
-An asynchronous Python Jupyter kernel.
+An asynchronous Python Jupyter kernel, with optional reactive programming.
+
+## Install
+
+```bash
+pip install akernel
+```
+
+If you want to be able to use reactive programming:
+
+```bash
+pip install akernel[react]
+```
+
+Note that it will just add [ipyx](https://github.com/davidbrochart/ipyx), which you could also
+install later if you want (`pip install ipyx`).
+
+You can switch between reactive and non-reactive modes by entering:
+
+```bash
+akernel install react  # enable reactive mode
+akernel install async  # disable reactive mode
+```
 
 ## Motivation
 
@@ -55,4 +77,3 @@ It is still a work in progress, in particular:
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
 - No rich representation for now, only the standard `__repr__` is supported. This means no
   matplotlib figure yet :-( But ipywidgets should work!
-- If the cell code has multiline strings, they must be wrapped with the `textwrap.dedent` function.
