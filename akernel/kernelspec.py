@@ -3,11 +3,11 @@ import sys
 import json
 
 
-def write_kernelspec(dir_name: str, language: str, display_name: str) -> None:
+def write_kernelspec(dir_name: str, mode: str, display_name: str) -> None:
     kernelspec = {
-        "argv": ["akernel", "launch", "python", "-f", "{connection_file}"],
+        "argv": ["akernel", "launch", mode, "-f", "{connection_file}"],
         "display_name": display_name,
-        "language": language,
+        "language": "python",
     }
     directory = os.path.join(sys.prefix, "share", "jupyter", "kernels", dir_name)
     os.makedirs(directory, exist_ok=True)

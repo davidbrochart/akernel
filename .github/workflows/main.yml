@@ -48,4 +48,4 @@ jobs:
       run: |
         akernel --help
         test -f ${CONDA_PREFIX}/share/jupyter/kernels/akernel/kernel.json
-        pytest akernel/tests
+        pytest akernel/tests -v

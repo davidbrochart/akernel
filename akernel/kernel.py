@@ -41,7 +41,7 @@ class Kernel:
     restart: bool
     key: str
     comm_manager: CommManager
-    kernel_name: str
+    kernel_mode: str
     running_cells: Dict[int, asyncio.Task]
     task_i: int
     execution_count: int
@@ -51,14 +51,14 @@ class Kernel:
 
     def __init__(
         self,
-        kernel_name: str,
+        kernel_mode: str,
         connection_file: str,
     ):
         global KERNEL
         KERNEL = self
         self.comm_manager = CommManager()
         self.loop = asyncio.get_event_loop()
-        self.kernel_name = kernel_name
+        self.kernel_mode = kernel_mode
         self.running_cells = {}
         self.task_i = 0
         self.execution_count = 1
@@ -70,6 +70,9 @@ class Kernel:
             "_": None,
         }
         self.locals = {}
+        if kernel_mode == "react":
+            code = "import ipyx; globals()['ipyx'] = ipyx"
+            exec(code, self.globals, self.locals)
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
@@ -173,8 +176,9 @@ class Kernel:
                     content={"code": code, "execution_count": self.execution_count},
                 )
                 send_message(msg, self.iopub_channel, self.key)
+                react = self.kernel_mode == "react"
                 traceback, exception = pre_execute(
-                    code, self.globals, self.locals, self.execution_count
+                    code, self.globals, self.locals, self.execution_count, react=react
                 )
                 if traceback:
                     self.finish_execution(
@@ -253,6 +257,9 @@ class Kernel:
                         "_": None,
                     }
                     self.locals = {}
+                    if self.kernel_mode == "react":
+                        code = "import ipyx; globals()['ipyx'] = ipyx"
+                        exec(code, self.globals, self.locals)
                     self.execution_count = 1
                 self.stop.set()
 

@@ -42,6 +42,10 @@ setup(
             "pytest-asyncio",
             "types-python-dateutil",
             "kernel_driver",
+            "ipyx>=0.1.2",
+        ],
+        "react": [
+            "ipyx>=0.1.2",
         ],
     },
     entry_points={

@@ -8,18 +8,17 @@ cli = typer.Typer()
 
 
 @cli.command()
-def install(
-    kernel_name: str = typer.Argument(..., help="Name of the kernel to install.")
-):
-    write_kernelspec("akernel", kernel_name, "Python 3 (akernel)")
+def install(mode: str = typer.Argument(..., help="Mode of the kernel to install.")):
+    display_name = f"Python 3 (akernel-{mode})"
+    write_kernelspec("akernel", mode, display_name)
 
 
 @cli.command()
 def launch(
-    kernel_name: str = typer.Argument(..., help="Name of the kernel to launch."),
+    mode: str = typer.Argument(..., help="Mode of the kernel to launch."),
     connection_file: str = typer.Option(..., "-f", help="Path to the connection file."),
 ):
-    Kernel(kernel_name, connection_file)
+    Kernel(mode, connection_file)
 
 
 if __name__ == "__main__":

@@ -11,12 +11,13 @@ def pre_execute(
     globals_: Dict[str, Any],
     locals_: Dict[str, Any],
     execution_count: int = 0,
+    react: bool = False,
 ) -> Tuple[List[str], Optional[SyntaxError]]:
     traceback = []
     exception = None
 
     try:
-        async_bytecode = Transform(code).get_async_bytecode()
+        async_bytecode = Transform(code, react).get_async_bytecode()
         exec(async_bytecode, globals_, locals_)
     except SyntaxError as e:
         exception = e
@@ -42,11 +43,11 @@ def pre_execute(
 
 
 async def execute(
-    code: str, globals_: Dict[str, Any], locals_: Dict[str, Any]
+    code: str, globals_: Dict[str, Any], locals_: Dict[str, Any], react: bool = False
 ) -> Tuple[Any, List[str], bool]:
     result = None
     interrupted = False
-    traceback, exception = pre_execute(code, globals_, locals_)
+    traceback, exception = pre_execute(code, globals_, locals_, react=react)
     if traceback:
         return result, traceback, interrupted
 
