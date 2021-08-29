@@ -1,0 +1,7 @@
+name: akernel
+channels:
+  - conda-forge
+dependencies:
+  - jupyterlab =3
+  - akernel >=0.0.10
+  - ipyx >=0.1.2

@@ -10,6 +10,10 @@ code_declare = dedent(
     """
     if "a" not in globals() and "a" not in locals():
         a = ipyx.X()
+    if isinstance(a, ipyx.X):
+        a_ipyxv = a.v
+    else:
+        a_ipyxv = a
     """
 ).strip()
 
@@ -22,8 +26,17 @@ code_assign = dedent(
     """
 ).strip()
 
+code_delete = dedent(
+    """
+    for name in list(locals().keys()):
+        if name.endswith("_ipyxv"):
+            del locals()[name]
+    """
+).strip()
+
 body_declare = gast.parse(code_declare).body
 body_assign = gast.parse(code_assign).body
+body_delete = gast.parse(code_delete).body
 
 
 def get_declare_body(lhs: str):
@@ -31,6 +44,11 @@ def get_declare_body(lhs: str):
     body[0].test.values[0].left.value = lhs  # type: ignore
     body[0].test.values[1].left.value = lhs  # type: ignore
     body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[1].test.args[0].id = lhs  # type: ignore
+    body[1].body[0].targets[0].id = lhs + "_ipyxv"  # type: ignore
+    body[1].body[0].value.value.id = lhs  # type: ignore
+    body[1].orelse[0].targets[0].id = lhs + "_ipyxv"  # type: ignore
+    body[1].orelse[0].value.id = lhs  # type: ignore
     return body
 
 
@@ -41,8 +59,11 @@ def get_assign_body(lhs: str, rhs, v_rhs):
     body[0].body[0].targets[0].id = lhs  # type: ignore
     body[0].body[0].value = rhs  # type: ignore
     body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
-    v_transformer = VTransformer()
-    v_transformer.visit(v_rhs)
+    if isinstance(v_rhs, gast.Name):
+        v_rhs.id += "_ipyxv"
+    else:
+        v_transformer = VTransformer()
+        v_transformer.visit(v_rhs)
     body[0].orelse[0].value = v_rhs  # type: ignore
     return body
 
@@ -56,12 +77,12 @@ class Transform:
         c = GlobalUseCollector()
         c.visit(self.gtree)
         self.globals = set(c.globals)
+        self.last_statement = self.gtree.body[-1]
         if react:
             self.make_react()
 
     def get_async_ast(self) -> gast.Module:
-        last_statement = self.gtree.body[-1]
-        return_value = type(last_statement) is gast.Expr
+        return_value = type(self.last_statement) is gast.Expr
         new_body = []
         if self.globals:
             new_body += [gast.Global(names=list(self.globals))]
@@ -69,7 +90,7 @@ class Transform:
             new_body += (
                 self.gtree.body[:-1]
                 + body_globals_update_locals
-                + [gast.Return(value=last_statement.value)]
+                + [gast.Return(value=self.last_statement.value)]
             )
         else:
             new_body += self.gtree.body + body_globals_update_locals
@@ -128,7 +149,7 @@ class Transform:
                                 if isinstance(n, gast.Call)
                             ]
                             for n in rhs_calls:
-                                n.func.not_var = True
+                                n.func.is_not_var = True
                             # RHS
                             rhs_calls = [
                                 n
@@ -136,9 +157,9 @@ class Transform:
                                 if isinstance(n, gast.Call)
                             ]
                             for n in rhs_calls:
-                                n.func.not_var = True
+                                n.func.is_not_var = True
                                 ipyx_name = gast.Name(id="ipyx", ctx=gast.Load())
-                                ipyx_name.not_var = True
+                                ipyx_name.is_not_var = True
                                 n.func = gast.Call(
                                     func=gast.Attribute(
                                         value=ipyx_name, attr="F", ctx=gast.Load()
@@ -150,7 +171,7 @@ class Transform:
                                 n.id
                                 for n in gast.walk(statement.value)
                                 if isinstance(n, gast.Name)
-                                and not hasattr(n, "not_var")
+                                and not hasattr(n, "is_not_var")
                             ]
                             for name_id in rhs_name_ids:
                                 new_body += get_declare_body(name_id)
@@ -164,6 +185,7 @@ class Transform:
                     new_body.append(statement)
                 if new_body:
                     node.body = new_body
+        self.gtree.body += body_delete
 
 
 # see https://stackoverflow.com/questions/43166571/
@@ -207,8 +229,6 @@ class GlobalUseCollector(gast.NodeVisitor):
 
 class VTransformer(gast.NodeTransformer):
     def visit_Name(self, node):
-        if hasattr(node, "not_var"):
-            new_node = node
-        else:
-            new_node = ast.Attribute(value=node, attr="v", ctx=ast.Load())
-        return new_node
+        if not hasattr(node, "is_not_var"):
+            node.id += "_ipyxv"
+        return node
