@@ -3,5 +3,8 @@ channels:
   - conda-forge
 dependencies:
   - jupyterlab =3
-  - akernel >=0.0.10
-  - ipyx >=0.1.2
+  - nodejs
+  - yarn
+  - pip
+  - pip:
+    - git+https://github.com/davidbrochart/ipyx.git
