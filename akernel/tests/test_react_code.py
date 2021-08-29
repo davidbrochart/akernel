@@ -15,9 +15,11 @@ def test_assign_constant():
             a = 1
         else:
             a.v = 1
-        for name in list(locals().keys()):
-            if name.endswith('_ipyxv'):
-                del locals()[name]
+        for name_ipyxv in list(locals().keys()):
+            if name_ipyxv.endswith('_ipyxv'):
+                del locals()[name_ipyxv]
+        if 'name_ipyxv' in locals():
+            del name_ipyxv
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -41,9 +43,11 @@ def test_assign_variable():
             a = b
         else:
             a.v = b_ipyxv
-        for name in list(locals().keys()):
-            if name.endswith('_ipyxv'):
-                del locals()[name]
+        for name_ipyxv in list(locals().keys()):
+            if name_ipyxv.endswith('_ipyxv'):
+                del locals()[name_ipyxv]
+        if 'name_ipyxv' in locals():
+            del name_ipyxv
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -67,9 +71,11 @@ def test_assign_call():
             a = ipyx.F(foo)(b)
         else:
             a.v = foo(b_ipyxv)
-        for name in list(locals().keys()):
-            if name.endswith('_ipyxv'):
-                del locals()[name]
+        for name_ipyxv in list(locals().keys()):
+            if name_ipyxv.endswith('_ipyxv'):
+                del locals()[name_ipyxv]
+        if 'name_ipyxv' in locals():
+            del name_ipyxv
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -93,9 +99,11 @@ def test_assign_nested_call():
             a = ipyx.F(foo)(ipyx.F(bar)(b))
         else:
             a.v = foo(bar(b_ipyxv))
-        for name in list(locals().keys()):
-            if name.endswith('_ipyxv'):
-                del locals()[name]
+        for name_ipyxv in list(locals().keys()):
+            if name_ipyxv.endswith('_ipyxv'):
+                del locals()[name_ipyxv]
+        if 'name_ipyxv' in locals():
+            del name_ipyxv
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
