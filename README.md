@@ -84,7 +84,7 @@ out of order:
 
 ```python
 # cell 1
-a = b + 1  # b is not defined yet
+a = b + 1  # "b" is not defined yet
 a
 ```
 
@@ -94,10 +94,12 @@ definition of `b`:
 
 ```python
 # cell 2
-b = 2  # triggers the computation of a in cell 1
+b = 2  # triggers the computation of "a" in cell 1
 ```
 
-Now `a`, which depends on `b`, is automatically updated, and the output of cell 1 shows `3`.
+Now `a`, which depends on `b`, is automatically updated, and the output of cell 1 is `3`.
+
+You can of course define much more complex data flows, by defining variables on top of other ones.
 
 ## Limitations
 
@@ -106,4 +108,4 @@ It is still a work in progress, in particular:
 - `stdout`/`stderr` redirection to the cell output is only supported through the `print` function.
 - No rich representation for now, only the standard `__repr__` is supported. This means no
   matplotlib figure yet :-( But since ipywidgets work, why not using
-  [ipympl][https://github.com/matplotlib/ipympl]?
+  [ipympl](https://github.com/matplotlib/ipympl)? :-)
