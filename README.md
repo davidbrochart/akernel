@@ -21,7 +21,7 @@ pip install akernel[react]
 Note that it will just add [ipyx](https://github.com/davidbrochart/ipyx), which you could also
 install later if you want (`pip install ipyx`).
 
-You can switch between reactive and non-reactive modes by entering (you will need to restard your kernel):
+You can switch between reactive and non-reactive modes by entering (you will need to restart your kernel):
 
 ```bash
 akernel install react  # enable reactive mode

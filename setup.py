@@ -27,8 +27,8 @@ setup(
     python_requires=">=3.7",
     install_requires=[
         "pyzmq",
-        "typer",
-        "click<8",
+        "typer>=0.4.0",
+        "click",
         "python-dateutil",
         "colorama",
         "gast",
