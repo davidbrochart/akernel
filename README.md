@@ -101,6 +101,8 @@ Now `a`, which depends on `b`, is automatically updated, and the output of cell 
 
 You can of course define much more complex data flows, by defining variables on top of other ones.
 
+![screencast](https://user-images.githubusercontent.com/591645/131855258-35118507-6be2-44cb-9329-143ad8509405.gif)
+
 ## Limitations
 
 It is still a work in progress, in particular:
