@@ -12,14 +12,16 @@ def test_assign_constant():
     expected = dedent(
         """
         if 'a' not in globals() and 'a' not in locals():
+            if isinstance(1, ipyx.X):
+                a = 1
+            else:
+                a = ipyx.X(1)
+        elif isinstance(1, ipyx.X):
             a = 1
-        else:
+        elif isinstance(a, ipyx.X):
             a.v = 1
-        for name_ipyxv in list(locals().keys()):
-            if name_ipyxv.endswith('_ipyxv'):
-                del locals()[name_ipyxv]
-        if 'name_ipyxv' in locals():
-            del name_ipyxv
+        else:
+            a = 1
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -35,19 +37,17 @@ def test_assign_variable():
         """
         if 'b' not in globals() and 'b' not in locals():
             b = ipyx.X()
-        if isinstance(b, ipyx.X):
-            b_ipyxv = b.v
-        else:
-            b_ipyxv = b
         if 'a' not in globals() and 'a' not in locals():
+            if isinstance(b, ipyx.X):
+                a = b
+            else:
+                a = ipyx.X(b)
+        elif isinstance(b, ipyx.X):
             a = b
+        elif isinstance(a, ipyx.X):
+            a.v = b
         else:
-            a.v = b_ipyxv
-        for name_ipyxv in list(locals().keys()):
-            if name_ipyxv.endswith('_ipyxv'):
-                del locals()[name_ipyxv]
-        if 'name_ipyxv' in locals():
-            del name_ipyxv
+            a = b
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -63,19 +63,19 @@ def test_assign_call():
         """
         if 'b' not in globals() and 'b' not in locals():
             b = ipyx.X()
-        if isinstance(b, ipyx.X):
-            b_ipyxv = b.v
-        else:
-            b_ipyxv = b
+        if 'foo' not in globals() and 'foo' not in locals():
+            foo = ipyx.X()
         if 'a' not in globals() and 'a' not in locals():
+            if isinstance(ipyx.F(foo)(b), ipyx.X):
+                a = ipyx.F(foo)(b)
+            else:
+                a = ipyx.X(ipyx.F(foo)(b))
+        elif isinstance(ipyx.F(foo)(b), ipyx.X):
             a = ipyx.F(foo)(b)
+        elif isinstance(a, ipyx.X):
+            a.v = ipyx.F(foo)(b)
         else:
-            a.v = foo(b_ipyxv)
-        for name_ipyxv in list(locals().keys()):
-            if name_ipyxv.endswith('_ipyxv'):
-                del locals()[name_ipyxv]
-        if 'name_ipyxv' in locals():
-            del name_ipyxv
+            a = ipyx.F(foo)(b)
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected
@@ -89,21 +89,23 @@ def test_assign_nested_call():
     ).strip()
     expected = dedent(
         """
+        if 'foo' not in globals() and 'foo' not in locals():
+            foo = ipyx.X()
         if 'b' not in globals() and 'b' not in locals():
             b = ipyx.X()
-        if isinstance(b, ipyx.X):
-            b_ipyxv = b.v
-        else:
-            b_ipyxv = b
+        if 'bar' not in globals() and 'bar' not in locals():
+            bar = ipyx.X()
         if 'a' not in globals() and 'a' not in locals():
+            if isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
+                a = ipyx.F(foo)(ipyx.F(bar)(b))
+            else:
+                a = ipyx.X(ipyx.F(foo)(ipyx.F(bar)(b)))
+        elif isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
             a = ipyx.F(foo)(ipyx.F(bar)(b))
+        elif isinstance(a, ipyx.X):
+            a.v = ipyx.F(foo)(ipyx.F(bar)(b))
         else:
-            a.v = foo(bar(b_ipyxv))
-        for name_ipyxv in list(locals().keys()):
-            if name_ipyxv.endswith('_ipyxv'):
-                del locals()[name_ipyxv]
-        if 'name_ipyxv' in locals():
-            del name_ipyxv
+            a = ipyx.F(foo)(ipyx.F(bar)(b))
         """
     ).strip()
     assert Transform(code, react=True).get_code() == expected

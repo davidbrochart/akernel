@@ -10,35 +10,28 @@ code_declare = dedent(
     """
     if "a" not in globals() and "a" not in locals():
         a = ipyx.X()
-    if isinstance(a, ipyx.X):
-        a_ipyxv = a.v
-    else:
-        a_ipyxv = a
     """
 ).strip()
 
 code_assign = dedent(
     """
     if "a" not in globals() and "a" not in locals():
-        a = b
+        if isinstance(b, ipyx.X):
+            a = b
+        else:
+            a = ipyx.X(b)
     else:
-        a.v = c
-    """
-).strip()
-
-code_delete = dedent(
-    """
-    for name_ipyxv in list(locals().keys()):
-        if name_ipyxv.endswith("_ipyxv"):
-            del locals()[name_ipyxv]
-    if "name_ipyxv" in locals():
-        del name_ipyxv
+        if isinstance(b, ipyx.X):
+            a = b
+        elif isinstance(a, ipyx.X):
+            a.v = b
+        else:
+            a = b
     """
 ).strip()
 
 body_declare = gast.parse(code_declare).body
 body_assign = gast.parse(code_assign).body
-body_delete = gast.parse(code_delete).body
 
 
 def get_declare_body(lhs: str):
@@ -46,27 +39,26 @@ def get_declare_body(lhs: str):
     body[0].test.values[0].left.value = lhs  # type: ignore
     body[0].test.values[1].left.value = lhs  # type: ignore
     body[0].body[0].targets[0].id = lhs  # type: ignore
-    body[1].test.args[0].id = lhs  # type: ignore
-    body[1].body[0].targets[0].id = lhs + "_ipyxv"  # type: ignore
-    body[1].body[0].value.value.id = lhs  # type: ignore
-    body[1].orelse[0].targets[0].id = lhs + "_ipyxv"  # type: ignore
-    body[1].orelse[0].value.id = lhs  # type: ignore
     return body
 
 
-def get_assign_body(lhs: str, rhs, v_rhs):
+def get_assign_body(lhs: str, rhs):
     body = copy.deepcopy(body_assign)
     body[0].test.values[0].left.value = lhs  # type: ignore
     body[0].test.values[1].left.value = lhs  # type: ignore
-    body[0].body[0].targets[0].id = lhs  # type: ignore
-    body[0].body[0].value = rhs  # type: ignore
-    body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
-    if isinstance(v_rhs, gast.Name):
-        v_rhs.id += "_ipyxv"
-    else:
-        v_transformer = VTransformer()
-        v_transformer.visit(v_rhs)
-    body[0].orelse[0].value = v_rhs  # type: ignore
+    body[0].body[0].test.args[0] = rhs
+    body[0].body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[0].body[0].body[0].value = rhs  # type: ignore
+    body[0].body[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[0].body[0].orelse[0].value.args[0] = rhs  # type: ignore
+    body[0].orelse[0].test.args[0] = rhs  # type: ignore
+    body[0].orelse[0].body[0].targets[0].id = lhs  # type: ignore
+    body[0].orelse[0].body[0].value = rhs  # type: ignore
+    body[0].orelse[0].orelse[0].test.args[0].id = lhs  # type: ignore
+    body[0].orelse[0].orelse[0].body[0].targets[0].value.id = lhs  # type: ignore
+    body[0].orelse[0].orelse[0].body[0].value = rhs  # type: ignore
+    body[0].orelse[0].orelse[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[0].orelse[0].orelse[0].orelse[0].value = rhs  # type: ignore
     return body
 
 
@@ -144,14 +136,6 @@ class Transform:
                         if len(statement.targets) == 1 and isinstance(
                             statement.targets[0], gast.Name
                         ):
-                            original_statement = copy.deepcopy(statement)
-                            rhs_calls = [
-                                n
-                                for n in gast.walk(original_statement.value)
-                                if isinstance(n, gast.Call)
-                            ]
-                            for n in rhs_calls:
-                                n.func.is_not_var = True
                             # RHS
                             rhs_calls = [
                                 n
@@ -159,9 +143,7 @@ class Transform:
                                 if isinstance(n, gast.Call)
                             ]
                             for n in rhs_calls:
-                                n.func.is_not_var = True
                                 ipyx_name = gast.Name(id="ipyx", ctx=gast.Load())
-                                ipyx_name.is_not_var = True
                                 n.func = gast.Call(
                                     func=gast.Attribute(
                                         value=ipyx_name, attr="F", ctx=gast.Load()
@@ -172,8 +154,7 @@ class Transform:
                             rhs_name_ids = [
                                 n.id
                                 for n in gast.walk(statement.value)
-                                if isinstance(n, gast.Name)
-                                and not hasattr(n, "is_not_var")
+                                if isinstance(n, gast.Name) and n.id != "ipyx"
                             ]
                             for name_id in rhs_name_ids:
                                 new_body += get_declare_body(name_id)
@@ -181,13 +162,11 @@ class Transform:
                             new_body += get_assign_body(
                                 statement.targets[0].id,
                                 statement.value,
-                                original_statement.value,
                             )
                             continue
                     new_body.append(statement)
                 if new_body:
                     node.body = new_body
-        self.gtree.body += body_delete
 
 
 # see https://stackoverflow.com/questions/43166571/
@@ -227,10 +206,3 @@ class GlobalUseCollector(gast.NodeVisitor):
         ctx, g = self.context[-1]
         if ctx == "global" or node.id in g:
             self.globals.append(node.id)
-
-
-class VTransformer(gast.NodeTransformer):
-    def visit_Name(self, node):
-        if not hasattr(node, "is_not_var"):
-            node.id += "_ipyxv"
-        return node
