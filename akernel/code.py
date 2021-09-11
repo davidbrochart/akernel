@@ -21,10 +21,11 @@ code_assign = dedent(
         else:
             a = ipyx.X(b)
     else:
-        if isinstance(b, ipyx.X):
-            a = b
-        elif isinstance(a, ipyx.X):
-            a.v = b
+        if isinstance(a, ipyx.X):
+            if isinstance(b, ipyx.X):
+                a.v = b.v
+            else:
+                a.v = b
         else:
             a = b
     """
@@ -51,14 +52,14 @@ def get_assign_body(lhs: str, rhs):
     body[0].body[0].body[0].value = rhs  # type: ignore
     body[0].body[0].orelse[0].targets[0].id = lhs  # type: ignore
     body[0].body[0].orelse[0].value.args[0] = rhs  # type: ignore
-    body[0].orelse[0].test.args[0] = rhs  # type: ignore
-    body[0].orelse[0].body[0].targets[0].id = lhs  # type: ignore
-    body[0].orelse[0].body[0].value = rhs  # type: ignore
-    body[0].orelse[0].orelse[0].test.args[0].id = lhs  # type: ignore
-    body[0].orelse[0].orelse[0].body[0].targets[0].value.id = lhs  # type: ignore
-    body[0].orelse[0].orelse[0].body[0].value = rhs  # type: ignore
-    body[0].orelse[0].orelse[0].orelse[0].targets[0].id = lhs  # type: ignore
-    body[0].orelse[0].orelse[0].orelse[0].value = rhs  # type: ignore
+    body[0].orelse[0].test.args[0].id = lhs  # type: ignore
+    body[0].orelse[0].body[0].test.args[0] = rhs  # type: ignore
+    body[0].orelse[0].body[0].body[0].targets[0].value.id = lhs  # type: ignore
+    body[0].orelse[0].body[0].body[0].value.value = rhs  # type: ignore
+    body[0].orelse[0].body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
+    body[0].orelse[0].body[0].orelse[0].value = rhs  # type: ignore
+    body[0].orelse[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[0].orelse[0].orelse[0].value = rhs  # type: ignore
     return body
 
 
