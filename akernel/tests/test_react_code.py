@@ -16,10 +16,11 @@ def test_assign_constant():
                 a = 1
             else:
                 a = ipyx.X(1)
-        elif isinstance(1, ipyx.X):
-            a = 1
         elif isinstance(a, ipyx.X):
-            a.v = 1
+            if isinstance(1, ipyx.X):
+                a.v = 1 .v
+            else:
+                a.v = 1
         else:
             a = 1
         """
@@ -42,10 +43,11 @@ def test_assign_variable():
                 a = b
             else:
                 a = ipyx.X(b)
-        elif isinstance(b, ipyx.X):
-            a = b
         elif isinstance(a, ipyx.X):
-            a.v = b
+            if isinstance(b, ipyx.X):
+                a.v = b.v
+            else:
+                a.v = b
         else:
             a = b
         """
@@ -70,10 +72,11 @@ def test_assign_call():
                 a = ipyx.F(foo)(b)
             else:
                 a = ipyx.X(ipyx.F(foo)(b))
-        elif isinstance(ipyx.F(foo)(b), ipyx.X):
-            a = ipyx.F(foo)(b)
         elif isinstance(a, ipyx.X):
-            a.v = ipyx.F(foo)(b)
+            if isinstance(ipyx.F(foo)(b), ipyx.X):
+                a.v = ipyx.F(foo)(b).v
+            else:
+                a.v = ipyx.F(foo)(b)
         else:
             a = ipyx.F(foo)(b)
         """
@@ -100,10 +103,11 @@ def test_assign_nested_call():
                 a = ipyx.F(foo)(ipyx.F(bar)(b))
             else:
                 a = ipyx.X(ipyx.F(foo)(ipyx.F(bar)(b)))
-        elif isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
-            a = ipyx.F(foo)(ipyx.F(bar)(b))
         elif isinstance(a, ipyx.X):
-            a.v = ipyx.F(foo)(ipyx.F(bar)(b))
+            if isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
+                a.v = ipyx.F(foo)(ipyx.F(bar)(b)).v
+            else:
+                a.v = ipyx.F(foo)(ipyx.F(bar)(b))
         else:
             a = ipyx.F(foo)(ipyx.F(bar)(b))
         """
