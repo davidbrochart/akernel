@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from akernel.code import Transform
+from akernel.code import Transform, code_assign, code_declare
 
 
 def test_assign_constant():
@@ -9,22 +9,9 @@ def test_assign_constant():
         a = 1
         """
     ).strip()
-    expected = dedent(
-        """
-        if 'a' not in globals() and 'a' not in locals():
-            if isinstance(1, ipyx.X):
-                a = 1
-            else:
-                a = ipyx.X(1)
-        elif isinstance(a, ipyx.X):
-            if isinstance(1, ipyx.X):
-                a.v = 1 .v
-            else:
-                a.v = 1
-        else:
-            a = 1
-        """
-    ).strip()
+    expected = (
+        code_assign.replace("lhs", "a").replace("rhs.v", "1 .v").replace("rhs", "1")
+    )
     assert Transform(code, react=True).get_code() == expected
 
 
@@ -34,24 +21,11 @@ def test_assign_variable():
         a = b
         """
     ).strip()
-    expected = dedent(
-        """
-        if 'b' not in globals() and 'b' not in locals():
-            b = ipyx.X()
-        if 'a' not in globals() and 'a' not in locals():
-            if isinstance(b, ipyx.X):
-                a = b
-            else:
-                a = ipyx.X(b)
-        elif isinstance(a, ipyx.X):
-            if isinstance(b, ipyx.X):
-                a.v = b.v
-            else:
-                a.v = b
-        else:
-            a = b
-        """
-    ).strip()
+    expected = (
+        code_declare.replace("var", "b")
+        + "\n"
+        + code_assign.replace("lhs", "a").replace("rhs", "b")
+    )
     assert Transform(code, react=True).get_code() == expected
 
 
@@ -61,26 +35,13 @@ def test_assign_call():
         a = foo(b)
         """
     ).strip()
-    expected = dedent(
-        """
-        if 'b' not in globals() and 'b' not in locals():
-            b = ipyx.X()
-        if 'foo' not in globals() and 'foo' not in locals():
-            foo = ipyx.X()
-        if 'a' not in globals() and 'a' not in locals():
-            if isinstance(ipyx.F(foo)(b), ipyx.X):
-                a = ipyx.F(foo)(b)
-            else:
-                a = ipyx.X(ipyx.F(foo)(b))
-        elif isinstance(a, ipyx.X):
-            if isinstance(ipyx.F(foo)(b), ipyx.X):
-                a.v = ipyx.F(foo)(b).v
-            else:
-                a.v = ipyx.F(foo)(b)
-        else:
-            a = ipyx.F(foo)(b)
-        """
-    ).strip()
+    expected = (
+        code_declare.replace("var", "b")
+        + "\n"
+        + code_declare.replace("var", "foo")
+        + "\n"
+        + code_assign.replace("lhs", "a").replace("rhs", "ipyx.F(foo)(b)")
+    )
     assert Transform(code, react=True).get_code() == expected
 
 
@@ -90,26 +51,13 @@ def test_assign_nested_call():
         a = foo(bar(b))
         """
     ).strip()
-    expected = dedent(
-        """
-        if 'foo' not in globals() and 'foo' not in locals():
-            foo = ipyx.X()
-        if 'b' not in globals() and 'b' not in locals():
-            b = ipyx.X()
-        if 'bar' not in globals() and 'bar' not in locals():
-            bar = ipyx.X()
-        if 'a' not in globals() and 'a' not in locals():
-            if isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
-                a = ipyx.F(foo)(ipyx.F(bar)(b))
-            else:
-                a = ipyx.X(ipyx.F(foo)(ipyx.F(bar)(b)))
-        elif isinstance(a, ipyx.X):
-            if isinstance(ipyx.F(foo)(ipyx.F(bar)(b)), ipyx.X):
-                a.v = ipyx.F(foo)(ipyx.F(bar)(b)).v
-            else:
-                a.v = ipyx.F(foo)(ipyx.F(bar)(b))
-        else:
-            a = ipyx.F(foo)(ipyx.F(bar)(b))
-        """
-    ).strip()
+    expected = (
+        code_declare.replace("var", "foo")
+        + "\n"
+        + code_declare.replace("var", "b")
+        + "\n"
+        + code_declare.replace("var", "bar")
+        + "\n"
+        + code_assign.replace("lhs", "a").replace("rhs", "ipyx.F(foo)(ipyx.F(bar)(b))")
+    )
     assert Transform(code, react=True).get_code() == expected
