@@ -8,26 +8,25 @@ from textwrap import dedent
 
 code_declare = dedent(
     """
-    if "a" not in globals() and "a" not in locals():
-        a = ipyx.X()
+    if 'var' not in globals() and 'var' not in locals():
+        var = ipyx.X()
     """
 ).strip()
 
 code_assign = dedent(
     """
-    if "a" not in globals() and "a" not in locals():
-        if isinstance(b, ipyx.X):
-            a = b
+    if 'lhs' not in globals() and 'lhs' not in locals():
+        if isinstance(rhs, ipyx.X):
+            lhs = rhs
         else:
-            a = ipyx.X(b)
+            lhs = ipyx.X(rhs)
+    elif isinstance(lhs, ipyx.X):
+        if isinstance(rhs, ipyx.X):
+            lhs.v = rhs.v
+        else:
+            lhs.v = rhs
     else:
-        if isinstance(a, ipyx.X):
-            if isinstance(b, ipyx.X):
-                a.v = b.v
-            else:
-                a.v = b
-        else:
-            a = b
+        lhs = rhs
     """
 ).strip()
 

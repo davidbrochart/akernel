@@ -283,12 +283,21 @@ class Kernel:
         else:
             if result is not None:
                 self.globals["_"] = result
+                send_stream = True
                 if getattr(result, "_repr_mimebundle_", None) is not None:
-                    data = result._repr_mimebundle_()
-                    display.display(data, raw=True)
+                    try:
+                        data = result._repr_mimebundle_()
+                        display.display(data, raw=True)
+                        send_stream = False
+                    except Exception:
+                        pass
                 elif getattr(result, "_ipython_display_", None) is not None:
-                    result._ipython_display_()
-                else:
+                    try:
+                        result._ipython_display_()
+                        send_stream = False
+                    except Exception:
+                        pass
+                if send_stream:
                     msg = self.create_message(
                         "stream",
                         parent_header=parent_header,
