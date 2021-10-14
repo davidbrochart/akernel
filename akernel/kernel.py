@@ -17,7 +17,7 @@ from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
 from .execution import pre_execute
 from .traceback import get_traceback
-from ._version import __version__
+from . import __version__
 
 
 PARENT_HEADER_VAR: ContextVar = ContextVar("parent_header")

@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import signal
 import re
@@ -15,6 +16,13 @@ KERNELSPEC_PATH = (
 
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+
+def interrupt_kernel(kernel_process):
+    if sys.platform.startswith("win"):
+        os.kill(kernel_process.pid, signal.CTRL_C_EVENT)
+    else:
+        kernel_process.send_signal(signal.SIGINT)
 
 
 @pytest.mark.asyncio
@@ -133,7 +141,7 @@ async def test_interrupt_async(capfd):
             )
             expected.append(f"{i0} {i1} before")
         await asyncio.sleep(0.1)
-        kd.kernel_process.send_signal(signal.SIGINT)
+        interrupt_kernel(kd.kernel_process)
         await asyncio.sleep(0.1)
     await kd.stop()
 
@@ -159,7 +167,7 @@ async def test_interrupt_chained(capfd):
         )
     )
     await asyncio.sleep(0.1)
-    kd.kernel_process.send_signal(signal.SIGINT)
+    interrupt_kernel(kd.kernel_process)
     await asyncio.sleep(0.1)
     await kd.stop()
 
@@ -183,7 +191,7 @@ async def test_interrupt_blocking(capfd):
         )
     )
     await asyncio.sleep(0.1)
-    kd.kernel_process.send_signal(signal.SIGINT)
+    interrupt_kernel(kd.kernel_process)
     await asyncio.sleep(0.1)
     await kd.stop()
 
