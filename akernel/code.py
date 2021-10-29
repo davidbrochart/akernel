@@ -9,7 +9,7 @@ from textwrap import dedent
 code_declare = dedent(
     """
     if 'var' not in globals() and 'var' not in locals():
-        var = ipyx.X()
+        var = ipyx.X(n='var')
     """
 ).strip()
 
@@ -21,6 +21,7 @@ code_assign = dedent(
             lhs = __ipyx_tmp__
         else:
             lhs = ipyx.X(__ipyx_tmp__)
+        lhs.n = 'lhs'
     elif isinstance(lhs, ipyx.X):
         if isinstance(__ipyx_tmp__, ipyx.X):
             lhs.v = __ipyx_tmp__.v
@@ -40,6 +41,7 @@ def get_declare_body(lhs: str):
     body[0].test.values[0].left.value = lhs  # type: ignore
     body[0].test.values[1].left.value = lhs  # type: ignore
     body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[0].body[0].value.keywords[0].value.value = lhs  # type: ignore
     return body
 
 
@@ -50,6 +52,8 @@ def get_assign_body(lhs: str, rhs):
     body[1].test.values[1].left.value = lhs  # type: ignore
     body[1].body[0].body[0].targets[0].id = lhs  # type: ignore
     body[1].body[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[1].body[1].targets[0].value.id = lhs  # type: ignore
+    body[1].body[1].value.value = lhs  # type: ignore
     body[1].orelse[0].test.args[0].id = lhs  # type: ignore
     body[1].orelse[0].body[0].body[0].targets[0].value.id = lhs  # type: ignore
     body[1].orelse[0].body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
