@@ -5,6 +5,4 @@ dependencies:
   - jupyterlab =3
   - nodejs
   - yarn
-  - pip
-  - pip:
-    - git+https://github.com/davidbrochart/ipyx.git
+  - ipyx >=0.1.6
