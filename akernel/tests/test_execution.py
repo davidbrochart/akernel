@@ -27,7 +27,7 @@ def tb_str(traceback: List[str]) -> str:
 
 
 @pytest.mark.asyncio
-async def test_execute_assign():
+async def test_execute_assign(all_modes):
     code = dedent(
         """
         a = 1
@@ -38,7 +38,7 @@ async def test_execute_assign():
 
 
 @pytest.mark.asyncio
-async def test_execute_assign_in_try():
+async def test_execute_assign_in_try(all_modes):
     code = dedent(
         """
         try:
@@ -52,7 +52,7 @@ async def test_execute_assign_in_try():
 
 
 @pytest.mark.asyncio
-async def test_execute_invalid_syntax():
+async def test_execute_invalid_syntax(all_modes):
     code = dedent(
         """
         ab cd
@@ -71,7 +71,7 @@ async def test_execute_invalid_syntax():
 
 
 @pytest.mark.asyncio
-async def test_execute_not_defined():
+async def test_execute_not_defined(all_modes):
     code = dedent(
         """
         a
@@ -90,7 +90,7 @@ async def test_execute_not_defined():
 
 
 @pytest.mark.asyncio
-async def test_execute_import_error():
+async def test_execute_import_error(all_modes):
     code = dedent(
         """
         from .foo import bar
@@ -110,7 +110,7 @@ async def test_execute_import_error():
 
 
 @pytest.mark.asyncio
-async def test_execute_async():
+async def test_execute_async(all_modes):
     code = dedent(
         """
         import asyncio

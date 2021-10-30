@@ -128,9 +128,9 @@ class Transform:
 
     def make_react(self):
         for node in gast.walk(self.gtree):
-            if hasattr(node, "body"):
+            if not isinstance(node, gast.FunctionDef) and hasattr(node, "body"):
                 new_body = []
-                for i, statement in enumerate(node.body):
+                for statement in node.body:
                     if isinstance(statement, gast.Assign):
                         if len(statement.targets) == 1 and isinstance(
                             statement.targets[0], gast.Name
