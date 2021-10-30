@@ -9,7 +9,7 @@ import pytest
 from kernel_driver import KernelDriver  # type: ignore
 
 
-TIMEOUT = 1
+TIMEOUT = 3
 KERNELSPEC_PATH = (
     os.environ["CONDA_PREFIX"] + "/share/jupyter/kernels/akernel/kernel.json"
 )
@@ -26,7 +26,7 @@ def interrupt_kernel(kernel_process):
 
 
 @pytest.mark.asyncio
-async def test_syntax_error(capfd):
+async def test_syntax_error(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("foo bar", timeout=TIMEOUT)
@@ -45,7 +45,7 @@ async def test_syntax_error(capfd):
 
 
 @pytest.mark.asyncio
-async def test_name_not_defined(capfd):
+async def test_name_not_defined(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("foo", timeout=TIMEOUT)
@@ -64,7 +64,7 @@ async def test_name_not_defined(capfd):
 
 
 @pytest.mark.asyncio
-async def test_hello_world(capfd):
+async def test_hello_world(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("print('Hello World!')", timeout=TIMEOUT)
@@ -75,7 +75,7 @@ async def test_hello_world(capfd):
 
 
 @pytest.mark.asyncio
-async def test_global_variable(capfd):
+async def test_global_variable(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("a = 1", timeout=TIMEOUT)
@@ -89,7 +89,7 @@ async def test_global_variable(capfd):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_cells(capfd):
+async def test_concurrent_cells(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     asyncio.create_task(
@@ -98,7 +98,7 @@ async def test_concurrent_cells(capfd):
     asyncio.create_task(
         kd.execute("await asyncio.sleep(0.1)\nprint('done2')", timeout=TIMEOUT)
     )
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.5)
     await kd.stop()
 
     out, err = capfd.readouterr()
@@ -106,7 +106,7 @@ async def test_concurrent_cells(capfd):
 
 
 @pytest.mark.asyncio
-async def test_chained_cells(capfd):
+async def test_chained_cells(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     asyncio.create_task(
@@ -118,7 +118,7 @@ async def test_chained_cells(capfd):
             timeout=TIMEOUT,
         )
     )
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.5)
     await kd.stop()
 
     out, err = capfd.readouterr()
@@ -126,7 +126,7 @@ async def test_chained_cells(capfd):
 
 
 @pytest.mark.asyncio
-async def test_interrupt_async(capfd):
+async def test_interrupt_async(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     expected = []
@@ -151,7 +151,7 @@ async def test_interrupt_async(capfd):
 
 
 @pytest.mark.asyncio
-async def test_interrupt_chained(capfd):
+async def test_interrupt_chained(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     asyncio.create_task(
@@ -176,7 +176,7 @@ async def test_interrupt_chained(capfd):
 
 
 @pytest.mark.asyncio
-async def test_interrupt_blocking(capfd):
+async def test_interrupt_blocking(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     asyncio.create_task(
@@ -200,7 +200,7 @@ async def test_interrupt_blocking(capfd):
 
 
 @pytest.mark.asyncio
-async def test_repr(capfd):
+async def test_repr(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("1 + 2", timeout=TIMEOUT)
@@ -211,7 +211,7 @@ async def test_repr(capfd):
 
 
 @pytest.mark.asyncio
-async def test_globals(capfd):
+async def test_globals(capfd, all_modes):
     code = dedent(
         """\
         a = 1
