@@ -1,6 +1,5 @@
 import copy
 
-import ast
 import gast  # type: ignore
 from types import CodeType
 from textwrap import dedent
@@ -110,15 +109,11 @@ class Transform:
         return gtree
 
     def get_code(self) -> str:
-        tree = gast.gast_to_ast(self.gtree)
-        code = ast.unparse(tree)
-        return code
+        return gast.unparse(self.gtree)
 
     def get_async_code(self) -> str:
         gtree = self.get_async_ast()
-        tree = gast.gast_to_ast(gtree)
-        code = ast.unparse(tree)
-        return code
+        return gast.unparse(gtree)
 
     def get_async_bytecode(self) -> CodeType:
         gtree = self.get_async_ast()
