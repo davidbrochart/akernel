@@ -1,3 +1,4 @@
+import sys
 from textwrap import dedent
 import re
 from math import sin
@@ -63,10 +64,18 @@ async def test_execute_invalid_syntax(all_modes):
         """
         Cell 0, line 1:
         ab cd
-           ^
+        POINTER
         SyntaxError: invalid syntax
         """
     ).strip()
+    if sys.version_info >= (3, 10):
+        pointer = "^"
+        expected += ". Perhaps you forgot a comma?"
+    elif sys.version_info >= (3, 8):
+        pointer = "   ^"
+    else:
+        pointer = "    ^"
+    expected = expected.replace("POINTER", pointer)
     assert tb_str(t) == expected
 
 

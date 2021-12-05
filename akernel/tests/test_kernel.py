@@ -34,14 +34,23 @@ async def test_syntax_error(capfd, all_modes):
 
     out, err = capfd.readouterr()
     # ignore colors
-    assert ANSI_ESCAPE.sub("", err) == dedent(
-        """\
+    expected = dedent(
+        """
         Cell 1, line 1:
         foo bar
-            ^
+        POINTER
         SyntaxError: invalid syntax
         """
-    )
+    ).strip()
+    if sys.version_info >= (3, 10):
+        pointer = "^"
+        expected += ". Perhaps you forgot a comma?"
+    elif sys.version_info >= (3, 8):
+        pointer = "    ^"
+    else:
+        pointer = "      ^"
+    expected = expected.replace("POINTER", pointer)
+    assert ANSI_ESCAPE.sub("", err).strip() == expected
 
 
 @pytest.mark.asyncio
