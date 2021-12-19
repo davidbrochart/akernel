@@ -5,4 +5,6 @@ dependencies:
   - jupyterlab =3
   - nodejs
   - yarn
-  - ipyx >=0.1.6
+  - pip
+  - pip:
+    - ipyx >=0.1.7
