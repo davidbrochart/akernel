@@ -127,7 +127,7 @@ async def test_chained_cells(capfd, all_modes):
             timeout=TIMEOUT,
         )
     )
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1)
     await kd.stop()
 
     out, err = capfd.readouterr()
