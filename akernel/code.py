@@ -31,8 +31,18 @@ code_assign = dedent(
     """
 ).strip()
 
+code_return = dedent(
+    """
+    __ipyx_tmp__ = expr
+    if isinstance(__ipyx_tmp__, ipyx.X):
+        return __ipyx_tmp__.w
+    return __ipyx_tmp__
+    """
+).strip()
+
 body_declare = gast.parse(code_declare).body
 body_assign = gast.parse(code_assign).body
+body_return = gast.parse(code_return).body
 
 
 def get_declare_body(lhs: str):
@@ -60,12 +70,19 @@ def get_assign_body(lhs: str, rhs):
     return body
 
 
+def get_return_body(val):
+    body = copy.deepcopy(body_return)
+    body[0].value = val
+    return body
+
+
 body_globals_update_locals = gast.parse("globals().update(locals())").body
 
 
 class Transform:
     def __init__(self, code: str, react: bool = False) -> None:
         self.gtree = gast.parse(code)
+        self.react = react
         c = GlobalUseCollector()
         c.visit(self.gtree)
         self.globals = set(c.globals)
@@ -79,11 +96,11 @@ class Transform:
             new_body += [gast.Global(names=list(self.globals))]
         if isinstance(self.last_statement, gast.Expr):
             self.gtree.body.remove(self.last_statement)
-            new_body += (
-                self.gtree.body
-                + body_globals_update_locals
-                + [gast.Return(value=self.last_statement.value)]
-            )
+            if self.react:
+                last_statement = get_return_body(self.last_statement.value)
+            else:
+                last_statement = [gast.Return(value=self.last_statement.value)]
+            new_body += self.gtree.body + body_globals_update_locals + last_statement
         else:
             new_body += self.gtree.body + body_globals_update_locals
         body = [
