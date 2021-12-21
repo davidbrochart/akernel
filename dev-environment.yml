@@ -1,5 +1,0 @@
-name: akernel-dev
-channels:
-    - conda-forge
-dependencies:
-    - pip
