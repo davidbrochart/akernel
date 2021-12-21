@@ -32,12 +32,11 @@ jobs:
     - name: Setup conda
       uses: conda-incubator/setup-miniconda@v2
       with:
-        activate-environment: akernel-dev
-        environment-file: dev-environment.yml
-        python-version: ${{ matrix.python-version }}
         mamba-version: "*"
-        auto-activate-base: false
         channels: conda-forge
+
+    - name: Mamba install dependencies
+      run: mamba install python=${{ matrix.python-version }} pip
 
     - name: Install akernel
       run: |
