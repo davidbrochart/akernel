@@ -70,9 +70,7 @@ class Kernel:
             "_": None,
         }
         self.locals = {}
-        if kernel_mode == "react":
-            code = "import ipyx; globals()['ipyx'] = ipyx"
-            exec(code, self.globals, self.locals)
+        self.import_modules()
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
@@ -99,6 +97,14 @@ class Kernel:
             finally:
                 self.shell_task.cancel()
                 self.control_task.cancel()
+
+    def import_modules(self):
+        if self.kernel_mode == "react":
+            code = (
+                "import ipyx, ipywidgets;"
+                "globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
+            )
+            exec(code, self.globals, self.locals)
 
     def interrupt(self):
         self.interrupted = True
@@ -257,9 +263,7 @@ class Kernel:
                         "_": None,
                     }
                     self.locals = {}
-                    if self.kernel_mode == "react":
-                        code = "import ipyx; globals()['ipyx'] = ipyx"
-                        exec(code, self.globals, self.locals)
+                    self.import_modules()
                     self.execution_count = 1
                 self.stop.set()
 

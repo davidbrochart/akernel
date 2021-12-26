@@ -9,7 +9,7 @@ import pytest
 from kernel_driver import KernelDriver  # type: ignore
 
 
-TIMEOUT = 3
+TIMEOUT = 5
 KERNELSPEC_PATH = (
     os.environ["CONDA_PREFIX"] + "/share/jupyter/kernels/akernel/kernel.json"
 )
