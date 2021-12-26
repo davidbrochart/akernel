@@ -135,7 +135,7 @@ async def test_execute_async(all_modes):
 async def test_execute_react_op():
     code = dedent(
         """
-        import ipyx
+        import ipyx, ipywidgets
         a = b + 1
         b = 2
         """
@@ -150,7 +150,7 @@ async def test_execute_react_func():
     code = dedent(
         """
         from math import sin
-        import ipyx
+        import ipyx, ipywidgets
         a = sin(b) + 1
         b = 2
         """

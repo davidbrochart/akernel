@@ -17,15 +17,21 @@ code_assign = dedent(
     __ipyx_tmp__ = rhs
     if 'lhs' not in globals() and 'lhs' not in locals():
         if isinstance(__ipyx_tmp__, ipyx.X):
-            lhs = __ipyx_tmp__
+            if isinstance(__ipyx_tmp__.v, ipywidgets.Widget):
+                lhs = __ipyx_tmp__.v
+            else:
+                lhs = __ipyx_tmp__
+                lhs.n = 'lhs'
         else:
             lhs = ipyx.X(__ipyx_tmp__)
-        lhs.n = 'lhs'
+            lhs.n = 'lhs'
     elif isinstance(lhs, ipyx.X):
         if isinstance(__ipyx_tmp__, ipyx.X):
             lhs.v = __ipyx_tmp__.v
         else:
             lhs.v = __ipyx_tmp__
+    elif isinstance(__ipyx_tmp__, ipyx.X) and isinstance(__ipyx_tmp__.v, ipywidgets.Widget):
+        lhs = __ipyx_tmp__.v
     else:
         lhs = __ipyx_tmp__
     """
@@ -59,14 +65,18 @@ def get_assign_body(lhs: str, rhs):
     body[0].value = rhs
     body[1].test.values[0].left.value = lhs  # type: ignore
     body[1].test.values[1].left.value = lhs  # type: ignore
-    body[1].body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[1].body[0].body[0].body[0].targets[0].id = lhs  # type: ignore
+    body[1].body[0].body[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[1].body[0].body[0].orelse[1].targets[0].value.id = lhs  # type: ignore
+    body[1].body[0].body[0].orelse[1].value.value = lhs  # type: ignore
     body[1].body[0].orelse[0].targets[0].id = lhs  # type: ignore
-    body[1].body[1].targets[0].value.id = lhs  # type: ignore
-    body[1].body[1].value.value = lhs  # type: ignore
+    body[1].body[0].orelse[1].targets[0].value.id = lhs  # type: ignore
+    body[1].body[0].orelse[1].value.value = lhs  # type: ignore
     body[1].orelse[0].test.args[0].id = lhs  # type: ignore
     body[1].orelse[0].body[0].body[0].targets[0].value.id = lhs  # type: ignore
     body[1].orelse[0].body[0].orelse[0].targets[0].value.id = lhs  # type: ignore
-    body[1].orelse[0].orelse[0].targets[0].id = lhs  # type: ignore
+    body[1].orelse[0].orelse[0].body[0].targets[0].id = lhs  # type: ignore
+    body[1].orelse[0].orelse[0].orelse[0].targets[0].id = lhs  # type: ignore
     return body
 
 
