@@ -4,8 +4,12 @@ import json
 
 
 def write_kernelspec(dir_name: str, mode: str, display_name: str) -> None:
+    argv = ["akernel", "launch"]
+    if mode:
+        argv.append(mode)
+    argv += ["-f", "{connection_file}"]
     kernelspec = {
-        "argv": ["akernel", "launch", mode, "-f", "{connection_file}"],
+        "argv": argv,
         "display_name": display_name,
         "language": "python",
     }
