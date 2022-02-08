@@ -21,11 +21,13 @@ pip install akernel[react]
 Note that it will just add [ipyx](https://github.com/davidbrochart/ipyx), which you could also
 install later if you want (`pip install ipyx`).
 
-You can switch between reactive and non-reactive modes by entering (you will need to restart your kernel):
+You can parameterize akernel's execution mode (you will need to restart your kernel):
 
 ```bash
-akernel install react  # enable reactive mode
-akernel install async  # disable reactive mode (default)
+akernel install  # default (async)
+akernel install react  # reactive mode
+akernel install multi  # multi-kernel mode
+akernel install multi-react  # multi-kernel mode + reactive mode
 ```
 
 ## Motivation
@@ -102,6 +104,12 @@ Now `a`, which depends on `b`, is automatically updated, and the output of cell 
 You can of course define much more complex data flows, by defining variables on top of other ones.
 
 ![screencast](https://user-images.githubusercontent.com/591645/131855258-35118507-6be2-44cb-9329-143ad8509405.gif)
+
+### Multi-kernel mode
+
+This mode emulates multiple kernels inside the same kernel. Kernel isolation is achieved by using the session ID of execution requests. You can thus connect multiple notebooks to the same kernel, and they won't share execution state.
+
+This is particularly useful if cells are async, because they won't block the kernel. The same kernel can thus be "shared" and used by potentially a lot of notebooks, greatly reducing resource usage.
 
 ## Limitations
 

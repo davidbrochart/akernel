@@ -2,10 +2,9 @@
   "argv": [
     "akernel",
     "launch",
-    "async",
     "-f",
     "{connection_file}"
   ],
-  "display_name": "Python 3 (akernel-async)",
+  "display_name": "Python 3 (akernel)",
   "language": "python"
 }
