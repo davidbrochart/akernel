@@ -46,8 +46,11 @@ class Kernel:
     task_i: int
     execution_count: int
     execution_state: str
-    globals: Dict[str, Any]
-    locals: Dict[str, Any]
+    globals: Dict[str, Dict[str, Any]]
+    locals: Dict[str, Dict[str, Any]]
+    _multi_kernel: Optional[bool]
+    _react_kernel: Optional[bool]
+    kernel_initialized: List[str]
 
     def __init__(
         self,
@@ -59,18 +62,15 @@ class Kernel:
         self.comm_manager = CommManager()
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
+        self._multi_kernel = None
+        self._react_kernel = None
+        self.kernel_initialized = []
+        self.globals = {}
+        self.locals = {}
         self.running_cells = {}
         self.task_i = 0
         self.execution_count = 1
         self.execution_state = "starting"
-        self.globals = {
-            "asyncio": asyncio,
-            "print": self.print,
-            "__task__": self.task,
-            "_": None,
-        }
-        self.locals = {}
-        self.import_modules()
         with open(connection_file) as f:
             self.connection_cfg = json.load(f)
         self.key = cast(str, self.connection_cfg["key"])
@@ -98,13 +98,43 @@ class Kernel:
                 self.shell_task.cancel()
                 self.control_task.cancel()
 
-    def import_modules(self):
-        if self.kernel_mode == "react":
+    @property
+    def multi_kernel(self):
+        if self._multi_kernel is None:
+            self._multi_kernel = "multi" in self.kernel_mode
+        return self._multi_kernel
+
+    @property
+    def react_kernel(self):
+        if self._react_kernel is None:
+            self._react_kernel = "react" in self.kernel_mode
+        return self._react_kernel
+
+    def init_kernel(self, namespace):
+        if namespace in self.kernel_initialized:
+            return
+
+        self.globals[namespace] = {
+            "asyncio": asyncio,
+            "print": self.print,
+            "__task__": self.task,
+            "_": None,
+        }
+        self.locals[namespace] = {}
+        if self.react_kernel:
             code = (
                 "import ipyx, ipywidgets;"
                 "globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
             )
-            exec(code, self.globals, self.locals)
+            exec(code, self.globals[namespace], self.locals[namespace])
+
+        self.kernel_initialized.append(namespace)
+
+    def get_namespace(self, parent_header):
+        if self.multi_kernel:
+            return parent_header["session"]
+
+        return "namespace"
 
     def interrupt(self):
         self.interrupted = True
@@ -182,9 +212,14 @@ class Kernel:
                     content={"code": code, "execution_count": self.execution_count},
                 )
                 send_message(msg, self.iopub_channel, self.key)
-                react = self.kernel_mode == "react"
+                namespace = self.get_namespace(parent_header)
+                self.init_kernel(namespace)
                 traceback, exception = pre_execute(
-                    code, self.globals, self.locals, self.execution_count, react=react
+                    code,
+                    self.globals[namespace],
+                    self.locals[namespace],
+                    self.execution_count,
+                    react=self.react_kernel,
                 )
                 if traceback:
                     self.finish_execution(
@@ -256,14 +291,6 @@ class Kernel:
                 )
                 send_message(msg, self.control_channel, self.key, idents[0])
                 if self.restart:
-                    self.globals = {
-                        "asyncio": asyncio,
-                        "print": self.print,
-                        "__task__": self.task,
-                        "_": None,
-                    }
-                    self.locals = {}
-                    self.import_modules()
                     self.execution_count = 1
                 self.stop.set()
 
@@ -277,8 +304,9 @@ class Kernel:
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         traceback, exception = [], None
+        namespace = self.get_namespace(parent_header)
         try:
-            result = await self.locals["__async_cell__"]()
+            result = await self.locals[namespace]["__async_cell__"]()
         except KeyboardInterrupt:
             self.interrupt()
         except Exception as e:
@@ -286,7 +314,7 @@ class Kernel:
             traceback = get_traceback(code, e, execution_count)
         else:
             if result is not None:
-                self.globals["_"] = result
+                self.globals[namespace]["_"] = result
                 send_stream = True
                 if getattr(result, "_repr_mimebundle_", None) is not None:
                     try:
