@@ -1,3 +1,5 @@
+import hashlib
+import pickle
 from typing import List, Dict, Tuple, Any, Optional
 
 from colorama import Fore, Style  # type: ignore
@@ -12,12 +14,22 @@ def pre_execute(
     locals_: Dict[str, Any],
     execution_count: int = 0,
     react: bool = False,
-) -> Tuple[List[str], Optional[SyntaxError]]:
+    cache: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[str], Optional[SyntaxError], bool, Tuple]:
     traceback = []
     exception = None
+    code_cached = False
+    cached = False
+    code_hash = None
+    inputs_hash = None
+    inputs = []
+    outputs = []
 
     try:
-        async_bytecode = Transform(code, react).get_async_bytecode()
+        transform = Transform(code, react)
+        async_bytecode = transform.get_async_bytecode()
+        cell_globals = transform.globals
+        outputs = list(transform.outputs)
         exec(async_bytecode, globals_, locals_)
     except SyntaxError as e:
         exception = e
@@ -38,8 +50,49 @@ def pre_execute(
             f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
             f"{exception.args[0]}",
         ]
+    else:
+        if cache is not None:
+            code_sha = hashlib.sha256()
+            code_sha.update(code.encode())
+            code_hash = code_sha.hexdigest()
+            code_cached = code_hash in cache
+            inputs_sha = hashlib.sha256()
+            if code_cached:
+                print("Code cached")
+                inputs = cache[code_hash]["inputs"]
+                outputs = cache[code_hash]["outputs"]
+                for k in inputs:
+                    try:
+                        inputs_sha.update(pickle.dumps(globals_[k]))
+                    except Exception:
+                        print(f"Cannot pickle.dumps {k}")
+            else:
+                # first time this code is executed, let's infer inputs and outputs
+                for k in cell_globals:
+                    if k not in outputs:
+                        try:
+                            inputs_sha.update(pickle.dumps(globals_[k]))
+                            inputs.append(k)
+                        except Exception:
+                            print(f"Cannot pickle.dumps {k}")
+            print(f"Inputs = {inputs}")
+            print(f"Outputs = {outputs}")
+            inputs_hash = inputs_sha.hexdigest()
 
-    return traceback, exception
+    if code_cached:
+        assert cache is not None
+        assert code_hash is not None
+        if inputs_hash in cache[code_hash]:
+            print("Execution cached")
+            cached = True
+            for k, v in cache[code_hash][inputs_hash].items():
+                try:
+                    globals_[k] = pickle.loads(v)
+                    print(f"Retrieving {k} = {globals_[k]}")
+                except Exception:
+                    print(f"Cannot pickle.loads {k}")
+
+    return traceback, exception, cached, (code_hash, inputs_hash, inputs, outputs)
 
 
 async def execute(
@@ -47,7 +100,9 @@ async def execute(
 ) -> Tuple[Any, List[str], bool]:
     result = None
     interrupted = False
-    traceback, exception = pre_execute(code, globals_, locals_, react=react)
+    traceback, exception, cached, cell_cache = pre_execute(
+        code, globals_, locals_, react=react
+    )
     if traceback:
         return result, traceback, interrupted
 

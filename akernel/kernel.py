@@ -1,4 +1,5 @@
 import sys
+import pickle
 import platform
 import asyncio
 import json
@@ -49,8 +50,10 @@ class Kernel:
     globals: Dict[str, Dict[str, Any]]
     locals: Dict[str, Dict[str, Any]]
     _multi_kernel: Optional[bool]
+    _cache_kernel: Optional[bool]
     _react_kernel: Optional[bool]
     kernel_initialized: List[str]
+    cache: Optional[Dict[str, Any]]
 
     def __init__(
         self,
@@ -63,6 +66,7 @@ class Kernel:
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
         self._multi_kernel = None
+        self._cache_kernel = None
         self._react_kernel = None
         self.kernel_initialized = []
         self.globals = {}
@@ -77,6 +81,12 @@ class Kernel:
         self.restart = False
         self.interrupted = False
         self.msg_cnt = 0
+        if self.cache_kernel:
+            # from .cache import l1
+            # self.cache = l1
+            self.cache = {}
+        else:
+            self.cache = None
         self.shell_channel = connect_channel("shell", self.connection_cfg)
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
         self.control_channel = connect_channel("control", self.connection_cfg)
@@ -103,6 +113,12 @@ class Kernel:
         if self._multi_kernel is None:
             self._multi_kernel = "multi" in self.kernel_mode
         return self._multi_kernel
+
+    @property
+    def cache_kernel(self):
+        if self._cache_kernel is None:
+            self._cache_kernel = "cache" in self.kernel_mode
+        return self._cache_kernel
 
     @property
     def react_kernel(self):
@@ -214,14 +230,22 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
                 namespace = self.get_namespace(parent_header)
                 self.init_kernel(namespace)
-                traceback, exception = pre_execute(
+                traceback, exception, cached, cell_cache = pre_execute(
                     code,
                     self.globals[namespace],
                     self.locals[namespace],
                     self.execution_count,
                     react=self.react_kernel,
+                    cache=self.cache,
                 )
-                if traceback:
+                if cached:
+                    self.finish_execution(
+                        idents,
+                        parent_header,
+                        self.execution_count,
+                    )
+                    self.execution_count += 1
+                elif traceback:
                     self.finish_execution(
                         idents,
                         parent_header,
@@ -237,6 +261,7 @@ class Kernel:
                             self.task_i,
                             self.execution_count,
                             code,
+                            cell_cache,
                         )
                     )
                     self.running_cells[self.task_i] = task
@@ -301,6 +326,7 @@ class Kernel:
         task_i: int,
         execution_count: int,
         code: str,
+        cell_cache,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         traceback, exception = [], None
@@ -313,6 +339,22 @@ class Kernel:
             exception = e
             traceback = get_traceback(code, e, execution_count)
         else:
+            if self.cache is not None:
+                # this cell execution was not cached, let's cache it
+                code_hash, inputs_hash, inputs, outputs = cell_cache
+                if code_hash not in self.cache:
+                    self.cache[code_hash] = {}
+                self.cache[code_hash]["inputs"] = inputs
+                self.cache[code_hash]["outputs"] = outputs
+                self.cache[code_hash][inputs_hash] = {}
+                for k in outputs:
+                    try:
+                        self.cache[code_hash][inputs_hash][k] = pickle.dumps(
+                            self.globals[namespace][k]
+                        )
+                        print(f"Caching {k} = {self.globals[namespace][k]}")
+                    except Exception:
+                        print(f"Cannot pickle.dumps {k}")
             if result is not None:
                 self.globals[namespace]["_"] = result
                 send_stream = True
