@@ -237,6 +237,8 @@ class Kernel:
                     self.execution_count,
                     react=self.react_kernel,
                     cache=self.cache,
+                    show_result=self.show_result,
+                    parent_header=parent_header,
                 )
                 if cached:
                     self.finish_execution(
@@ -339,6 +341,7 @@ class Kernel:
             exception = e
             traceback = get_traceback(code, e, execution_count)
         else:
+            self.show_result(result, self.globals[namespace], parent_header)
             if self.cache is not None:
                 # this cell execution was not cached, let's cache it
                 code_hash, inputs_hash, inputs, outputs = cell_cache
@@ -355,29 +358,7 @@ class Kernel:
                         print(f"Caching {k} = {self.globals[namespace][k]}")
                     except Exception:
                         print(f"Cannot pickle.dumps {k}")
-            if result is not None:
-                self.globals[namespace]["_"] = result
-                send_stream = True
-                if getattr(result, "_repr_mimebundle_", None) is not None:
-                    try:
-                        data = result._repr_mimebundle_()
-                        display.display(data, raw=True)
-                        send_stream = False
-                    except Exception:
-                        pass
-                elif getattr(result, "_ipython_display_", None) is not None:
-                    try:
-                        result._ipython_display_()
-                        send_stream = False
-                    except Exception:
-                        pass
-                if send_stream:
-                    msg = self.create_message(
-                        "stream",
-                        parent_header=parent_header,
-                        content={"name": "stdout", "text": f"{repr(result)}\n"},
-                    )
-                    send_message(msg, self.iopub_channel, self.key)
+                self.cache[code_hash][inputs_hash]["__result__"] = result
         finally:
             self.finish_execution(
                 idents,
@@ -476,3 +457,28 @@ class Kernel:
         )
         self.msg_cnt += 1
         return msg
+
+    def show_result(self, result, globals_, parent_header):
+        if result is not None:
+            globals_["_"] = result
+            send_stream = True
+            if getattr(result, "_repr_mimebundle_", None) is not None:
+                try:
+                    data = result._repr_mimebundle_()
+                    display.display(data, raw=True)
+                    send_stream = False
+                except Exception:
+                    pass
+            elif getattr(result, "_ipython_display_", None) is not None:
+                try:
+                    result._ipython_display_()
+                    send_stream = False
+                except Exception:
+                    pass
+            if send_stream:
+                msg = self.create_message(
+                    "stream",
+                    parent_header=parent_header,
+                    content={"name": "stdout", "text": f"{repr(result)}\n"},
+                )
+                send_message(msg, self.iopub_channel, self.key)

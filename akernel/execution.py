@@ -15,6 +15,8 @@ def pre_execute(
     execution_count: int = 0,
     react: bool = False,
     cache: Optional[Dict[str, Any]] = None,
+    show_result=None,
+    parent_header=None,
 ) -> Tuple[List[str], Optional[SyntaxError], bool, Tuple]:
     traceback = []
     exception = None
@@ -86,11 +88,14 @@ def pre_execute(
             print("Execution cached")
             cached = True
             for k, v in cache[code_hash][inputs_hash].items():
-                try:
-                    globals_[k] = pickle.loads(v)
-                    print(f"Retrieving {k} = {globals_[k]}")
-                except Exception:
-                    print(f"Cannot pickle.loads {k}")
+                if k != "__result__":
+                    try:
+                        globals_[k] = pickle.loads(v)
+                        print(f"Retrieving {k} = {globals_[k]}")
+                    except Exception:
+                        print(f"Cannot pickle.loads {k}")
+            result = cache[code_hash][inputs_hash]["__result__"]
+            show_result(result, globals_, parent_header)
 
     return traceback, exception, cached, (code_hash, inputs_hash, inputs, outputs)
 
