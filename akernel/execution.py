@@ -15,9 +15,7 @@ def pre_execute(
     execution_count: int = 0,
     react: bool = False,
     cache: Optional[Dict[str, Any]] = None,
-    show_result=None,
-    parent_header=None,
-) -> Tuple[List[str], Optional[SyntaxError], bool, Tuple]:
+) -> Tuple[List[str], Optional[SyntaxError], bool, Dict[str, Any]]:
     traceback = []
     exception = None
     code_cached = False
@@ -26,6 +24,7 @@ def pre_execute(
     inputs_hash = None
     inputs = []
     outputs = []
+    result = None
 
     try:
         transform = Transform(code, react)
@@ -95,27 +94,67 @@ def pre_execute(
                     except Exception:
                         print(f"Cannot pickle.loads {k}")
             result = cache[code_hash][inputs_hash]["__result__"]
-            show_result(result, globals_, parent_header)
 
-    return traceback, exception, cached, (code_hash, inputs_hash, inputs, outputs)
+    cache_info = {
+        "code_hash": code_hash,
+        "inputs_hash": inputs_hash,
+        "inputs": inputs,
+        "outputs": outputs,
+        "result": result,
+    }
+    return traceback, exception, cached, cache_info
 
 
+def cache_execution(
+    cache: Optional[Dict[str, Any]],
+    cache_info: Dict[str, Any],
+    globals_: Dict[str, Any],
+    result: Any,
+):
+    if cache is not None:
+        # this cell execution was not cached, let's cache it
+        code_hash = cache_info["code_hash"]
+        inputs_hash = cache_info["inputs_hash"]
+        if code_hash not in cache:
+            cache[code_hash] = {}
+        cache[code_hash]["inputs"] = cache_info["inputs"]
+        cache[code_hash]["outputs"] = cache_info["outputs"]
+        cache[code_hash][inputs_hash] = {}
+        for k in cache_info["outputs"]:
+            try:
+                cache[code_hash][inputs_hash][k] = pickle.dumps(globals_[k])
+                print(f"Caching {k} = {globals_[k]}")
+            except Exception:
+                print(f"Cannot pickle.dumps {k}")
+        cache[code_hash][inputs_hash]["__result__"] = result
+
+
+# used in tests (mimic execute_and_finish, finish_execution)
 async def execute(
-    code: str, globals_: Dict[str, Any], locals_: Dict[str, Any], react: bool = False
+    code: str,
+    globals_: Dict[str, Any],
+    locals_: Dict[str, Any],
+    react: bool = False,
+    cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, List[str], bool]:
     result = None
     interrupted = False
-    traceback, exception, cached, cell_cache = pre_execute(
-        code, globals_, locals_, react=react
+    traceback, exception, cached, cache_info = pre_execute(
+        code, globals_, locals_, react=react, cache=cache
     )
     if traceback:
         return result, traceback, interrupted
 
-    try:
-        result = await locals_["__async_cell__"]()
-    except KeyboardInterrupt:
-        interrupted = True
-    except Exception as e:
-        traceback = get_traceback(code, e)
+    if cached:
+        result = cache_info["result"]
+    else:
+        try:
+            result = await locals_["__async_cell__"]()
+        except KeyboardInterrupt:
+            interrupted = True
+        except Exception as e:
+            traceback = get_traceback(code, e)
+        else:
+            cache_execution(cache, cache_info, globals_, result)
 
     return result, traceback, interrupted

@@ -1,5 +1,4 @@
 import sys
-import pickle
 import platform
 import asyncio
 import json
@@ -16,7 +15,7 @@ import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
-from .execution import pre_execute
+from .execution import pre_execute, cache_execution
 from .traceback import get_traceback
 from . import __version__
 
@@ -230,21 +229,20 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
                 namespace = self.get_namespace(parent_header)
                 self.init_kernel(namespace)
-                traceback, exception, cached, cell_cache = pre_execute(
+                traceback, exception, cached, cache_info = pre_execute(
                     code,
                     self.globals[namespace],
                     self.locals[namespace],
                     self.execution_count,
                     react=self.react_kernel,
                     cache=self.cache,
-                    show_result=self.show_result,
-                    parent_header=parent_header,
                 )
                 if cached:
                     self.finish_execution(
                         idents,
                         parent_header,
                         self.execution_count,
+                        result=cache_info["result"],
                     )
                     self.execution_count += 1
                 elif traceback:
@@ -263,7 +261,7 @@ class Kernel:
                             self.task_i,
                             self.execution_count,
                             code,
-                            cell_cache,
+                            cache_info,
                         )
                     )
                     self.running_cells[self.task_i] = task
@@ -328,7 +326,7 @@ class Kernel:
         task_i: int,
         execution_count: int,
         code: str,
-        cell_cache,
+        cache_info,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         traceback, exception = [], None
@@ -342,23 +340,7 @@ class Kernel:
             traceback = get_traceback(code, e, execution_count)
         else:
             self.show_result(result, self.globals[namespace], parent_header)
-            if self.cache is not None:
-                # this cell execution was not cached, let's cache it
-                code_hash, inputs_hash, inputs, outputs = cell_cache
-                if code_hash not in self.cache:
-                    self.cache[code_hash] = {}
-                self.cache[code_hash]["inputs"] = inputs
-                self.cache[code_hash]["outputs"] = outputs
-                self.cache[code_hash][inputs_hash] = {}
-                for k in outputs:
-                    try:
-                        self.cache[code_hash][inputs_hash][k] = pickle.dumps(
-                            self.globals[namespace][k]
-                        )
-                        print(f"Caching {k} = {self.globals[namespace][k]}")
-                    except Exception:
-                        print(f"Cannot pickle.dumps {k}")
-                self.cache[code_hash][inputs_hash]["__result__"] = result
+            cache_execution(self.cache, cache_info, self.globals[namespace], result)
         finally:
             self.finish_execution(
                 idents,
@@ -378,7 +360,11 @@ class Kernel:
         exception: Optional[Exception] = None,
         no_exec: bool = False,
         traceback: List[str] = [],
+        result=None,
     ) -> None:
+        if result:
+            namespace = self.get_namespace(parent_header)
+            self.show_result(result, self.globals[namespace], parent_header)
         if no_exec:
             status = "aborted"
         else:
