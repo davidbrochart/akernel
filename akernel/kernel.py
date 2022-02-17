@@ -81,9 +81,9 @@ class Kernel:
         self.interrupted = False
         self.msg_cnt = 0
         if self.cache_kernel:
-            # from .cache import l1
-            # self.cache = l1
-            self.cache = {}
+            from .cache import l1
+
+            self.cache = l1
         else:
             self.cache = None
         self.shell_channel = connect_channel("shell", self.connection_cfg)

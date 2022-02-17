@@ -56,25 +56,31 @@ def pre_execute(
             code_sha = hashlib.sha256()
             code_sha.update(code.encode())
             code_hash = code_sha.hexdigest()
-            code_cached = code_hash in cache
+            for k in cache.keys():
+                if k.startswith(code_hash):
+                    code_cached = True
+                    break
             inputs_sha = hashlib.sha256()
             if code_cached:
                 print("Code cached")
-                inputs = cache[code_hash]["inputs"]
-                outputs = cache[code_hash]["outputs"]
+                inputs = cache[f"{code_hash}inputs"]
+                outputs = cache[f"{code_hash}outputs"]
                 for k in inputs:
                     try:
                         inputs_sha.update(pickle.dumps(globals_[k]))
                     except Exception:
                         print(f"Cannot pickle.dumps {k}")
             else:
-                # first time this code is executed, let's infer inputs and outputs
+                # first time this code is executed, let's infer inputs
                 for k in cell_globals:
                     if k not in outputs:
+                        # could be an input
                         try:
                             inputs_sha.update(pickle.dumps(globals_[k]))
                             inputs.append(k)
                         except Exception:
+                            # WARNING: if we can't pickle it, we say it's not an input
+                            # which might not be true
                             print(f"Cannot pickle.dumps {k}")
             print(f"Inputs = {inputs}")
             print(f"Outputs = {outputs}")
@@ -83,17 +89,25 @@ def pre_execute(
     if code_cached:
         assert cache is not None
         assert code_hash is not None
-        if inputs_hash in cache[code_hash]:
+        assert inputs_hash is not None
+        hashes = code_hash + inputs_hash
+        for k in cache.keys():
+            if k.startswith(hashes):
+                cached = True
+                break
+        if cached:
             print("Execution cached")
-            cached = True
-            for k, v in cache[code_hash][inputs_hash].items():
-                if k != "__result__":
-                    try:
-                        globals_[k] = pickle.loads(v)
-                        print(f"Retrieving {k} = {globals_[k]}")
-                    except Exception:
-                        print(f"Cannot pickle.loads {k}")
-            result = cache[code_hash][inputs_hash]["__result__"]
+            name_i = len(hashes)
+            for k in cache.keys():
+                if k.startswith(hashes):
+                    name = k[name_i:]
+                    if name != "__result__":
+                        try:
+                            globals_[name] = cache[k]
+                            print(f"Retrieving {name} = {globals_[name]}")
+                        except Exception as e:
+                            print(e)
+            result = cache[f"{hashes}__result__"]
 
     cache_info = {
         "code_hash": code_hash,
@@ -115,18 +129,22 @@ def cache_execution(
         # this cell execution was not cached, let's cache it
         code_hash = cache_info["code_hash"]
         inputs_hash = cache_info["inputs_hash"]
-        if code_hash not in cache:
-            cache[code_hash] = {}
-        cache[code_hash]["inputs"] = cache_info["inputs"]
-        cache[code_hash]["outputs"] = cache_info["outputs"]
-        cache[code_hash][inputs_hash] = {}
+        new_code = True
+        for k in cache.keys():
+            if k.startswith(code_hash):
+                new_code = False
+                break
+        if new_code:
+            cache[f"{code_hash}inputs"] = cache_info["inputs"]
+            cache[f"{code_hash}outputs"] = cache_info["outputs"]
+        hashes = code_hash + inputs_hash
         for k in cache_info["outputs"]:
             try:
-                cache[code_hash][inputs_hash][k] = pickle.dumps(globals_[k])
+                cache[hashes + k] = globals_[k]
                 print(f"Caching {k} = {globals_[k]}")
-            except Exception:
-                print(f"Cannot pickle.dumps {k}")
-        cache[code_hash][inputs_hash]["__result__"] = result
+            except Exception as e:
+                print(e)
+        cache[f"{hashes}__result__"] = result
 
 
 # used in tests (mimic execute_and_finish, finish_execution)
