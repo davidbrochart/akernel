@@ -1,8 +1,9 @@
 import sys
+import time
 from textwrap import dedent
 import re
 from math import sin
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 import pytest
 
@@ -10,11 +11,17 @@ from akernel.execution import execute
 
 
 async def run(
-    code: str, react: bool = False
+    code: str,
+    globals_: Optional[Dict[str, Any]] = None,
+    react: bool = False,
+    cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, List[str], bool, Dict[str, Any], Dict[str, Any]]:
-    globals_: Dict[str, Any] = {}
+    if globals_ is None:
+        globals_ = {}
     locals_: Dict[str, Any] = {}
-    result, traceback, interrupted = await execute(code, globals_, locals_, react=react)
+    result, traceback, interrupted = await execute(
+        code, globals_, locals_, react=react, cache=cache
+    )
     if "__builtins__" in globals_:
         del globals_["__builtins__"]
     return result, traceback, interrupted, globals_, locals_
@@ -158,3 +165,72 @@ async def test_execute_react_func():
     r, t, i, g, l = await run(code, react=True)  # noqa
     assert g["b"].v == 2
     assert g["a"].v == sin(2) + 1
+
+
+@pytest.mark.asyncio
+async def test_execute_cache():
+    cache = {}
+    globals_ = {}
+    time_to_sleep = 0.1
+    # set inputs
+    code_x0 = dedent(
+        """
+        import time
+        x = 0
+        """
+    ).strip()
+    r, t, i, g, l = await run(code_x0, globals_=globals_, cache=cache)  # noqa
+    assert g["x"] == 0
+    # first run, should not be cached
+    code_to_cache = dedent(
+        f"""
+        time.sleep({time_to_sleep})
+        y = x + 1
+        2 * y
+        """
+    ).strip()
+    t0 = time.time()
+    r, t, i, g, l = await run(code_to_cache, globals_=globals_, cache=cache)  # noqa
+    t1 = time.time()
+    assert t1 - t0 > time_to_sleep
+    assert g["y"] == 1
+    assert r == 2
+    # same inputs, should be cached
+    t0 = time.time()
+    r, t, i, g, l = await run(code_to_cache, globals_=globals_, cache=cache)  # noqa
+    t1 = time.time()
+    assert t1 - t0 < time_to_sleep
+    assert g["y"] == 1
+    assert r == 2
+    # change inputs
+    code_x1 = dedent(
+        """
+        x = 1
+        """
+    ).strip()
+    r, t, i, g, l = await run(code_x1, globals_=globals_, cache=cache)  # noqa
+    assert g["x"] == 1
+    # inputs changed, should not be cached
+    t0 = time.time()
+    r, t, i, g, l = await run(code_to_cache, globals_=globals_, cache=cache)  # noqa
+    t1 = time.time()
+    assert t1 - t0 > time_to_sleep
+    assert g["y"] == 2
+    assert r == 4
+    # same inputs, should be cached
+    t0 = time.time()
+    r, t, i, g, l = await run(code_to_cache, globals_=globals_, cache=cache)  # noqa
+    t1 = time.time()
+    assert t1 - t0 < time_to_sleep
+    assert g["y"] == 2
+    assert r == 4
+    # back to first inputs
+    r, t, i, g, l = await run(code_x0, globals_=globals_, cache=cache)  # noqa
+    assert g["x"] == 0
+    # known inputs, should be cached
+    t0 = time.time()
+    r, t, i, g, l = await run(code_to_cache, globals_=globals_, cache=cache)  # noqa
+    t1 = time.time()
+    assert t1 - t0 < time_to_sleep
+    assert g["y"] == 1
+    assert r == 2

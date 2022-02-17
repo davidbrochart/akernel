@@ -15,7 +15,7 @@ import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
 from .message import receive_message, send_message, create_message, check_message
-from .execution import pre_execute
+from .execution import pre_execute, cache_execution
 from .traceback import get_traceback
 from . import __version__
 
@@ -49,12 +49,15 @@ class Kernel:
     globals: Dict[str, Dict[str, Any]]
     locals: Dict[str, Dict[str, Any]]
     _multi_kernel: Optional[bool]
+    _cache_kernel: Optional[bool]
     _react_kernel: Optional[bool]
     kernel_initialized: List[str]
+    cache: Optional[Dict[str, Any]]
 
     def __init__(
         self,
         kernel_mode: str,
+        cache_dir: Optional[str],
         connection_file: str,
     ):
         global KERNEL
@@ -62,7 +65,9 @@ class Kernel:
         self.comm_manager = CommManager()
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
+        self.cache_dir = cache_dir
         self._multi_kernel = None
+        self._cache_kernel = None
         self._react_kernel = None
         self.kernel_initialized = []
         self.globals = {}
@@ -77,6 +82,12 @@ class Kernel:
         self.restart = False
         self.interrupted = False
         self.msg_cnt = 0
+        if self.cache_kernel:
+            from .cache import cache
+
+            self.cache = cache(cache_dir)
+        else:
+            self.cache = None
         self.shell_channel = connect_channel("shell", self.connection_cfg)
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
         self.control_channel = connect_channel("control", self.connection_cfg)
@@ -103,6 +114,12 @@ class Kernel:
         if self._multi_kernel is None:
             self._multi_kernel = "multi" in self.kernel_mode
         return self._multi_kernel
+
+    @property
+    def cache_kernel(self):
+        if self._cache_kernel is None:
+            self._cache_kernel = "cache" in self.kernel_mode
+        return self._cache_kernel
 
     @property
     def react_kernel(self):
@@ -214,14 +231,23 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
                 namespace = self.get_namespace(parent_header)
                 self.init_kernel(namespace)
-                traceback, exception = pre_execute(
+                traceback, exception, cached, cache_info = pre_execute(
                     code,
                     self.globals[namespace],
                     self.locals[namespace],
                     self.execution_count,
                     react=self.react_kernel,
+                    cache=self.cache,
                 )
-                if traceback:
+                if cached:
+                    self.finish_execution(
+                        idents,
+                        parent_header,
+                        self.execution_count,
+                        result=cache_info["result"],
+                    )
+                    self.execution_count += 1
+                elif traceback:
                     self.finish_execution(
                         idents,
                         parent_header,
@@ -237,6 +263,7 @@ class Kernel:
                             self.task_i,
                             self.execution_count,
                             code,
+                            cache_info,
                         )
                     )
                     self.running_cells[self.task_i] = task
@@ -301,6 +328,7 @@ class Kernel:
         task_i: int,
         execution_count: int,
         code: str,
+        cache_info,
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         traceback, exception = [], None
@@ -313,29 +341,8 @@ class Kernel:
             exception = e
             traceback = get_traceback(code, e, execution_count)
         else:
-            if result is not None:
-                self.globals[namespace]["_"] = result
-                send_stream = True
-                if getattr(result, "_repr_mimebundle_", None) is not None:
-                    try:
-                        data = result._repr_mimebundle_()
-                        display.display(data, raw=True)
-                        send_stream = False
-                    except Exception:
-                        pass
-                elif getattr(result, "_ipython_display_", None) is not None:
-                    try:
-                        result._ipython_display_()
-                        send_stream = False
-                    except Exception:
-                        pass
-                if send_stream:
-                    msg = self.create_message(
-                        "stream",
-                        parent_header=parent_header,
-                        content={"name": "stdout", "text": f"{repr(result)}\n"},
-                    )
-                    send_message(msg, self.iopub_channel, self.key)
+            self.show_result(result, self.globals[namespace], parent_header)
+            cache_execution(self.cache, cache_info, self.globals[namespace], result)
         finally:
             self.finish_execution(
                 idents,
@@ -355,7 +362,11 @@ class Kernel:
         exception: Optional[Exception] = None,
         no_exec: bool = False,
         traceback: List[str] = [],
+        result=None,
     ) -> None:
+        if result:
+            namespace = self.get_namespace(parent_header)
+            self.show_result(result, self.globals[namespace], parent_header)
         if no_exec:
             status = "aborted"
         else:
@@ -434,3 +445,28 @@ class Kernel:
         )
         self.msg_cnt += 1
         return msg
+
+    def show_result(self, result, globals_, parent_header):
+        if result is not None:
+            globals_["_"] = result
+            send_stream = True
+            if getattr(result, "_repr_mimebundle_", None) is not None:
+                try:
+                    data = result._repr_mimebundle_()
+                    display.display(data, raw=True)
+                    send_stream = False
+                except Exception:
+                    pass
+            elif getattr(result, "_ipython_display_", None) is not None:
+                try:
+                    result._ipython_display_()
+                    send_stream = False
+                except Exception:
+                    pass
+            if send_stream:
+                msg = self.create_message(
+                    "stream",
+                    parent_header=parent_header,
+                    content={"name": "stdout", "text": f"{repr(result)}\n"},
+                )
+                send_message(msg, self.iopub_channel, self.key)
