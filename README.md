@@ -26,8 +26,9 @@ You can parameterize akernel's execution mode (you will need to restart your ker
 ```bash
 akernel install  # default (async)
 akernel install react  # reactive mode
+akernel install cache  # cache mode
 akernel install multi  # multi-kernel mode
-akernel install multi-react  # multi-kernel mode + reactive mode
+akernel install cache-multi-react  # cache mode + multi-kernel mode + reactive mode
 ```
 
 ## Motivation
@@ -105,7 +106,11 @@ You can of course define much more complex data flows, by defining variables on 
 
 ![screencast](https://user-images.githubusercontent.com/591645/131855258-35118507-6be2-44cb-9329-143ad8509405.gif)
 
-### Multi-kernel mode
+### Caching
+
+With this mode, cell execution is cached so that the next time a cell is run, its outputs are retrieved from cache (if its inputs didn't change). Inputs and outputs are inferred from the cell code.
+
+### Multi-kernel
 
 This mode emulates multiple kernels inside the same kernel. Kernel isolation is achieved by using the session ID of execution requests. You can thus connect multiple notebooks to the same kernel, and they won't share execution state.
 
