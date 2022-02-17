@@ -57,6 +57,7 @@ class Kernel:
     def __init__(
         self,
         kernel_mode: str,
+        cache_dir: Optional[str],
         connection_file: str,
     ):
         global KERNEL
@@ -64,6 +65,7 @@ class Kernel:
         self.comm_manager = CommManager()
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
+        self.cache_dir = cache_dir
         self._multi_kernel = None
         self._cache_kernel = None
         self._react_kernel = None
@@ -81,9 +83,9 @@ class Kernel:
         self.interrupted = False
         self.msg_cnt = 0
         if self.cache_kernel:
-            from .cache import l1
+            from .cache import cache
 
-            self.cache = l1
+            self.cache = cache(cache_dir)
         else:
             self.cache = None
         self.shell_channel = connect_channel("shell", self.connection_cfg)

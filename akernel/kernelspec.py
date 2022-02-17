@@ -1,12 +1,17 @@
 import os
 import sys
 import json
+from typing import Optional
 
 
-def write_kernelspec(dir_name: str, mode: str, display_name: str) -> None:
+def write_kernelspec(
+    dir_name: str, mode: str, display_name: str, cache_dir: Optional[str]
+) -> None:
     argv = ["akernel", "launch"]
     if mode:
         argv.append(mode)
+    if mode == "cache" and cache_dir:
+        argv += ["-c", cache_dir]
     argv += ["-f", "{connection_file}"]
     kernelspec = {
         "argv": argv,

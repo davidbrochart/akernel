@@ -62,14 +62,15 @@ def pre_execute(
                     break
             inputs_sha = hashlib.sha256()
             if code_cached:
-                print("Code cached")
+                # print("Code cached")
                 inputs = cache[f"{code_hash}inputs"]
                 outputs = cache[f"{code_hash}outputs"]
                 for k in inputs:
                     try:
                         inputs_sha.update(pickle.dumps(globals_[k]))
                     except Exception:
-                        print(f"Cannot pickle.dumps {k}")
+                        # print(f"Cannot pickle.dumps {k}")
+                        pass
             else:
                 # first time this code is executed, let's infer inputs
                 for k in cell_globals:
@@ -81,9 +82,10 @@ def pre_execute(
                         except Exception:
                             # WARNING: if we can't pickle it, we say it's not an input
                             # which might not be true
-                            print(f"Cannot pickle.dumps {k}")
-            print(f"Inputs = {inputs}")
-            print(f"Outputs = {outputs}")
+                            # print(f"Cannot pickle.dumps {k}")
+                            pass
+            # print(f"Inputs = {inputs}")
+            # print(f"Outputs = {outputs}")
             inputs_hash = inputs_sha.hexdigest()
 
     if code_cached:
@@ -96,7 +98,7 @@ def pre_execute(
                 cached = True
                 break
         if cached:
-            print("Execution cached")
+            # print("Execution cached")
             name_i = len(hashes)
             for k in cache.keys():
                 if k.startswith(hashes):
@@ -104,9 +106,10 @@ def pre_execute(
                     if name != "__result__":
                         try:
                             globals_[name] = cache[k]
-                            print(f"Retrieving {name} = {globals_[name]}")
-                        except Exception as e:
-                            print(e)
+                            # print(f"Retrieving {name} = {globals_[name]}")
+                        except Exception:  # as e:
+                            # print(e)
+                            pass
             result = cache[f"{hashes}__result__"]
 
     cache_info = {
@@ -141,9 +144,10 @@ def cache_execution(
         for k in cache_info["outputs"]:
             try:
                 cache[hashes + k] = globals_[k]
-                print(f"Caching {k} = {globals_[k]}")
-            except Exception as e:
-                print(e)
+                # print(f"Caching {k} = {globals_[k]}")
+            except Exception:  # as e:
+                # print(e)
+                pass
         cache[f"{hashes}__result__"] = result
 
 
