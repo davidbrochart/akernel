@@ -97,6 +97,7 @@ class Transform:
         c.visit(self.gtree)
         self.globals = set(c.globals)
         self.outputs = set(c.outputs)
+        self.has_import = c.has_import
         self.last_statement = self.gtree.body[-1]
         if react:
             self.make_react()
@@ -199,6 +200,7 @@ class GlobalUseCollector(gast.NodeVisitor):
     def __init__(self):
         self.globals = []
         self.outputs = []
+        self.has_import = False
         # track context name and set of names marked as `global`
         self.context = [("global", ())]
 
@@ -243,4 +245,16 @@ class GlobalUseCollector(gast.NodeVisitor):
         if ctx == "global":
             if isinstance(node.target, gast.Name):
                 self.outputs.append(node.target.id)
+        self.generic_visit(node)
+
+    def visit_Import(self, node):
+        ctx, g = self.context[-1]
+        if ctx == "global":
+            self.has_import = True
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        ctx, g = self.context[-1]
+        if ctx == "global":
+            self.has_import = True
         self.generic_visit(node)
