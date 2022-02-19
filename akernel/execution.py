@@ -15,22 +15,14 @@ def pre_execute(
     execution_count: int = 0,
     react: bool = False,
     cache: Optional[Dict[str, Any]] = None,
-) -> Tuple[List[str], Optional[SyntaxError], bool, Dict[str, Any]]:
+) -> Tuple[List[str], Optional[SyntaxError], Dict[str, Any]]:
     traceback = []
     exception = None
-    code_cached = False
-    cached = False
-    code_hash = None
-    inputs_hash = None
-    inputs = []
-    outputs = []
-    result = None
+    cache_info: Dict[str, Any] = {"cached": False}
 
     try:
         transform = Transform(code, react)
         async_bytecode = transform.get_async_bytecode()
-        cell_globals = transform.globals
-        outputs = list(transform.outputs)
         exec(async_bytecode, globals_, locals_)
     except SyntaxError as e:
         exception = e
@@ -53,73 +45,58 @@ def pre_execute(
         ]
     else:
         if cache is not None:
-            code_sha = hashlib.sha256()
-            code_sha.update(code.encode())
-            code_hash = code_sha.hexdigest()
-            for k in cache.keys():
-                if k.startswith(code_hash):
-                    code_cached = True
-                    break
-            inputs_sha = hashlib.sha256()
-            if code_cached:
-                # print("Code cached")
-                inputs = cache[f"{code_hash}inputs"]
-                outputs = cache[f"{code_hash}outputs"]
-                for k in inputs:
-                    try:
-                        inputs_sha.update(pickle.dumps(globals_[k]))
-                    except Exception:
-                        # print(f"Cannot pickle.dumps {k}")
-                        pass
-            else:
-                # first time this code is executed, let's infer inputs
-                for k in cell_globals:
-                    if k not in outputs:
-                        # could be an input
-                        try:
-                            inputs_sha.update(pickle.dumps(globals_[k]))
-                            inputs.append(k)
-                        except Exception:
-                            # WARNING: if we can't pickle it, we say it's not an input
-                            # which might not be true
-                            # print(f"Cannot pickle.dumps {k}")
-                            pass
+            inputs = transform.globals - transform.outputs
+            outputs = transform.outputs
             # print(f"Inputs = {inputs}")
             # print(f"Outputs = {outputs}")
-            inputs_hash = inputs_sha.hexdigest()
+            sha = hashlib.sha256()
+            sha.update(code.encode())
+            for k in inputs:
+                try:
+                    sha.update(pickle.dumps(globals_[k]))
+                except Exception:
+                    # FIXME
+                    # cannot pickle inputs, let's abort caching
+                    # return traceback, exception, cache_info
+                    pass
 
-    if code_cached:
-        assert cache is not None
-        assert code_hash is not None
-        assert inputs_hash is not None
-        hashes = code_hash + inputs_hash
-        for k in cache.keys():
-            if k.startswith(hashes):
-                cached = True
-                break
-        if cached:
-            # print("Execution cached")
-            name_i = len(hashes)
+            hash = sha.hexdigest()
+            if transform.has_import:
+                # cells that have 'import' must always be executed
+                cache_info = {
+                    "cached": False,
+                    "hash": hash,
+                    "outputs": outputs,
+                }
+                return traceback, exception, cache_info
+
+            # let's see if we have a cache for these particular inputs
             for k in cache.keys():
-                if k.startswith(hashes):
-                    name = k[name_i:]
-                    if name != "__result__":
-                        try:
-                            globals_[name] = cache[k]
-                            # print(f"Retrieving {name} = {globals_[name]}")
-                        except Exception:  # as e:
-                            # print(e)
-                            pass
-            result = cache[f"{hashes}__result__"]
+                if k.startswith(hash):
+                    # this cell was cached, no need to run it
+                    # let's just load the outputs
+                    # print("Execution cached")
+                    name_i = len(hash)
+                    for k in cache.keys():
+                        if k.startswith(hash):
+                            name = k[name_i:]
+                            if name != "__akernel_cell_result__":
+                                globals_[name] = cache[k]
+                                # print(f"Retrieving {name} = {globals_[name]}")
+                    cache_info = {
+                        "cached": True,
+                        "result": cache[f"{hash}__akernel_cell_result__"],
+                    }
+                    return traceback, exception, cache_info
 
-    cache_info = {
-        "code_hash": code_hash,
-        "inputs_hash": inputs_hash,
-        "inputs": inputs,
-        "outputs": outputs,
-        "result": result,
-    }
-    return traceback, exception, cached, cache_info
+            # this cell was not cached
+            cache_info = {
+                "cached": False,
+                "hash": hash,
+                "outputs": outputs,
+            }
+
+    return traceback, exception, cache_info
 
 
 def cache_execution(
@@ -130,25 +107,24 @@ def cache_execution(
 ):
     if cache is not None:
         # this cell execution was not cached, let's cache it
-        code_hash = cache_info["code_hash"]
-        inputs_hash = cache_info["inputs_hash"]
-        new_code = True
-        for k in cache.keys():
-            if k.startswith(code_hash):
-                new_code = False
-                break
-        if new_code:
-            cache[f"{code_hash}inputs"] = cache_info["inputs"]
-            cache[f"{code_hash}outputs"] = cache_info["outputs"]
-        hashes = code_hash + inputs_hash
+        assert not cache_info["cached"]
+        hash = cache_info["hash"]
+        cache_error = False
+        # let's store the outputs
         for k in cache_info["outputs"]:
             try:
-                cache[hashes + k] = globals_[k]
+                cache[hash + k] = globals_[k]
                 # print(f"Caching {k} = {globals_[k]}")
-            except Exception:  # as e:
-                # print(e)
-                pass
-        cache[f"{hashes}__result__"] = result
+            except Exception:
+                cache_error = True
+                break
+        if cache_error:
+            for k in cache_info["outputs"]:
+                try:
+                    del cache[hash + k]
+                except Exception:
+                    break
+        cache[f"{hash}__akernel_cell_result__"] = result
 
 
 # used in tests (mimic execute_and_finish, finish_execution)
@@ -161,13 +137,13 @@ async def execute(
 ) -> Tuple[Any, List[str], bool]:
     result = None
     interrupted = False
-    traceback, exception, cached, cache_info = pre_execute(
+    traceback, exception, cache_info = pre_execute(
         code, globals_, locals_, react=react, cache=cache
     )
     if traceback:
         return result, traceback, interrupted
 
-    if cached:
+    if cache_info["cached"]:
         result = cache_info["result"]
     else:
         try:

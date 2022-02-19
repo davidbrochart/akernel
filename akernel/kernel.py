@@ -231,7 +231,7 @@ class Kernel:
                 send_message(msg, self.iopub_channel, self.key)
                 namespace = self.get_namespace(parent_header)
                 self.init_kernel(namespace)
-                traceback, exception, cached, cache_info = pre_execute(
+                traceback, exception, cache_info = pre_execute(
                     code,
                     self.globals[namespace],
                     self.locals[namespace],
@@ -239,7 +239,7 @@ class Kernel:
                     react=self.react_kernel,
                     cache=self.cache,
                 )
-                if cached:
+                if cache_info["cached"]:
                     self.finish_execution(
                         idents,
                         parent_header,
@@ -328,7 +328,7 @@ class Kernel:
         task_i: int,
         execution_count: int,
         code: str,
-        cache_info,
+        cache_info: Dict[str, Any],
     ) -> None:
         PARENT_HEADER_VAR.set(parent_header)
         traceback, exception = [], None
