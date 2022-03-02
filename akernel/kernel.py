@@ -20,7 +20,8 @@ from .traceback import get_traceback
 from . import __version__
 
 
-PARENT_HEADER_VAR: ContextVar = ContextVar("parent_header")
+PARENT_VAR: ContextVar = ContextVar("parent")
+IDENTS_VAR: ContextVar = ContextVar("idents")
 
 KERNEL: "Kernel"
 
@@ -36,6 +37,7 @@ class Kernel:
     shell_channel: Socket
     iopub_channel: Socket
     control_channel: Socket
+    stdin_channel: Socket
     connection_cfg: Dict[str, Union[str, int]]
     stop: asyncio.Event
     restart: bool
@@ -91,6 +93,7 @@ class Kernel:
         self.shell_channel = connect_channel("shell", self.connection_cfg)
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
         self.control_channel = connect_channel("control", self.connection_cfg)
+        self.stdin_channel = connect_channel("stdin", self.connection_cfg)
         msg = self.create_message(
             "status", content={"execution_state": self.execution_state}
         )
@@ -132,6 +135,7 @@ class Kernel:
             return
 
         self.globals[namespace] = {
+            "ainput": self.ainput,
             "asyncio": asyncio,
             "print": self.print,
             "__task__": self.task,
@@ -186,6 +190,7 @@ class Kernel:
             idents, msg = res
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
+            parent = msg
             if msg_type == "kernel_info_request":
                 msg = self.create_message(
                     "kernel_info_reply",
@@ -259,7 +264,7 @@ class Kernel:
                     task = asyncio.create_task(
                         self.execute_and_finish(
                             idents,
-                            parent_header,
+                            parent,
                             self.task_i,
                             self.execution_count,
                             code,
@@ -324,13 +329,15 @@ class Kernel:
     async def execute_and_finish(
         self,
         idents: List[bytes],
-        parent_header: Dict[str, Any],
+        parent: Dict[str, Any],
         task_i: int,
         execution_count: int,
         code: str,
         cache_info: Dict[str, Any],
     ) -> None:
-        PARENT_HEADER_VAR.set(parent_header)
+        PARENT_VAR.set(parent)
+        IDENTS_VAR.set(idents)
+        parent_header = parent["header"]
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
         try:
@@ -408,6 +415,22 @@ class Kernel:
             return self.running_cells[i]
         return asyncio.sleep(0)
 
+    async def ainput(self, prompt: str = "") -> Any:
+        parent = PARENT_VAR.get()
+        idents = IDENTS_VAR.get()
+        if parent["content"]["allow_stdin"]:
+            msg = self.create_message(
+                "input_request",
+                parent_header=parent["header"],
+                content={"prompt": prompt, "password": False},
+            )
+            send_message(msg, self.stdin_channel, self.key, idents[0])
+            res = await receive_message(self.stdin_channel)
+            assert res is not None
+            idents, msg = res
+            if msg["content"]["status"] == "ok":
+                return msg["content"]["value"]
+
     def print(
         self,
         *objects,
@@ -429,7 +452,7 @@ class Kernel:
         f.close()
         msg = self.create_message(
             "stream",
-            parent_header=PARENT_HEADER_VAR.get(),
+            parent_header=PARENT_VAR.get()["header"],
             content={"name": name, "text": text},
         )
         send_message(msg, self.iopub_channel, self.key)

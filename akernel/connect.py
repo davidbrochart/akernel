@@ -13,6 +13,7 @@ channel_socket_types = {
     "shell": zmq.ROUTER,
     "control": zmq.ROUTER,
     "iopub": zmq.PUB,
+    "stdin": zmq.ROUTER,
 }
 
 
