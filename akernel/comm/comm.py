@@ -26,7 +26,7 @@ class Comm:
         buffers: List[bytes] = [],
         **kwargs
     ):
-        from akernel.kernel import KERNEL, PARENT_HEADER_VAR, Kernel
+        from akernel.kernel import KERNEL, PARENT_VAR, Kernel
 
         self.kernel: Kernel = KERNEL
         self._closed = True
@@ -43,7 +43,7 @@ class Comm:
             self.primary = primary
         self.target_name = target_name
         self.target_module = None
-        self.parent_header = PARENT_HEADER_VAR.get()
+        self.parent_header = PARENT_VAR.get()["header"]
         if self.primary:
             self.open(data=data, metadata=metadata, buffers=buffers)
         else:

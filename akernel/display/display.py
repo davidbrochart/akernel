@@ -2,9 +2,9 @@ from ..message import send_message, create_message
 
 
 def display(*args, raw: bool = False) -> None:
-    from akernel.kernel import KERNEL, PARENT_HEADER_VAR
+    from akernel.kernel import KERNEL, PARENT_VAR
 
-    parent_header = PARENT_HEADER_VAR.get()
+    parent_header = PARENT_VAR.get()["header"]
     data = args[0]
     msg = create_message(
         "display_data",
