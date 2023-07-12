@@ -16,7 +16,7 @@ DELIM = b"<IDS|MSG>"
 
 
 def date_to_str(obj: Dict[str, Any]):
-    if "date" in obj and type(obj["date"]) != str:
+    if obj is not None and "date" in obj and type(obj["date"]) != str:
         obj["date"] = obj["date"].isoformat().replace("+00:00", "Z")
     return obj
 
