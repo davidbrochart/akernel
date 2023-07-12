@@ -6,7 +6,7 @@ from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
-from zmq.sugar.socket import Socket
+from zmq.asyncio import Socket
 
 from akernel.comm import comm
 from akernel.comm.manager import CommManager

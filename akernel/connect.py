@@ -1,11 +1,10 @@
 import zmq
 from typing import Dict, Union
 
-import zmq.asyncio
-from zmq.sugar.socket import Socket
+from zmq.asyncio import Context, Socket
 
 
-context = zmq.asyncio.Context()
+context = Context()
 
 cfg_t = Dict[str, Union[str, int]]
 

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Tuple, Any, Optional, cast
 
 from zmq.utils import jsonapi
-from zmq.sugar.socket import Socket
+from zmq.asyncio import Socket
 from dateutil.parser import parse as dateutil_parse  # type: ignore
 
 
@@ -112,7 +112,7 @@ def send_message(
             view = memoryview(buf)
         assert view.contiguous
     to_send += buffers
-    return sock.send_multipart(to_send, copy=True)
+    sock.send_multipart(to_send, copy=True)
 
 
 def pack(obj: Dict[str, Any]) -> bytes:
@@ -150,5 +150,5 @@ def deserialize(msg_list: List[bytes]) -> Dict[str, Any]:
     return message
 
 
-async def check_message(sock: Socket) -> bool:
+async def check_message(sock: Socket) -> int:
     return await sock.poll(0)
