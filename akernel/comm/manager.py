@@ -4,7 +4,6 @@ from .comm import Comm
 
 
 class CommManager:
-
     comms: Dict[str, Comm]
     targets: Dict[str, Callable]
 

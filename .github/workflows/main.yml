@@ -42,10 +42,10 @@ jobs:
       run: |
         pip install .[test]
 
-    - name: Check style
+    - name: Check style and types
       run: |
         black --check akernel
-        flake8 akernel
+        ruff check akernel
         mypy akernel
 
     - name: Run tests

@@ -33,7 +33,6 @@ sys.modules["IPython.core"] = core
 
 
 class Kernel:
-
     shell_channel: Socket
     iopub_channel: Socket
     control_channel: Socket
