@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
 from zmq.asyncio import Socket
 
-from akernel.comm import comm
+import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
 import akernel.IPython
@@ -26,7 +26,6 @@ IDENTS_VAR: ContextVar = ContextVar("idents")
 KERNEL: "Kernel"
 
 
-sys.modules["ipykernel.comm"] = comm
 sys.modules["IPython.display"] = display
 sys.modules["IPython"] = akernel.IPython
 sys.modules["IPython.core"] = core
@@ -64,6 +63,11 @@ class Kernel:
         global KERNEL
         KERNEL = self
         self.comm_manager = CommManager()
+
+        def get_comm_manager():
+            return self.comm_manager
+
+        comm.get_comm_manager = get_comm_manager
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
         self.cache_dir = cache_dir
