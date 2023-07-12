@@ -5,7 +5,6 @@ from ..message import send_message, create_message
 
 
 class Comm:
-
     _closed: bool
     _msg_callback: Optional[Callable]
     _close_callback: Optional[Callable]
@@ -24,7 +23,7 @@ class Comm:
         data: Dict[str, Any] = {},
         metadata: Dict[str, Any] = {},
         buffers: List[bytes] = [],
-        **kwargs
+        **kwargs,
     ):
         from akernel.kernel import KERNEL, PARENT_VAR, Kernel
 
@@ -55,7 +54,7 @@ class Comm:
         data: Dict[str, Any],
         metadata: Dict[str, Any],
         buffers: List[bytes],
-        **keys
+        **keys,
     ) -> None:
         msg = create_message(
             msg_type,

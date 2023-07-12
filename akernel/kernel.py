@@ -6,7 +6,7 @@ from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
-from zmq.sugar.socket import Socket
+from zmq.asyncio import Socket
 
 from akernel.comm import comm
 from akernel.comm.manager import CommManager
@@ -33,7 +33,6 @@ sys.modules["IPython.core"] = core
 
 
 class Kernel:
-
     shell_channel: Socket
     iopub_channel: Socket
     control_channel: Socket
