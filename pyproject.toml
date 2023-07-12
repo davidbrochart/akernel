@@ -8,12 +8,11 @@ dynamic = ["version"]
 description = "An asynchronous Python Jupyter kernel"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 authors = [{name = "David Brochart", email = "david.brochart@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -65,4 +64,4 @@ Homepage = "https://github.com/davidbrochart/akernel"
 path = "akernel/__init__.py"
 
 [tool.ruff]
-line-length = 88
+line-length = 100

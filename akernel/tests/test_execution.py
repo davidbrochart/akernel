@@ -75,13 +75,13 @@ async def test_execute_invalid_syntax(all_modes):
         SyntaxError: invalid syntax
         """
     ).strip()
-    if sys.version_info >= (3, 10):
+    if sys.version_info >= (3, 11):
+        pointer = "   ^"
+    elif sys.version_info >= (3, 10):
         pointer = "^"
         expected += ". Perhaps you forgot a comma?"
     elif sys.version_info >= (3, 8):
         pointer = "   ^"
-    else:
-        pointer = "    ^"
     expected = expected.replace("POINTER", pointer)
     assert tb_str(t) == expected
 
