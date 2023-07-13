@@ -4,7 +4,8 @@
 
 # akernel
 
-An asynchronous Python Jupyter kernel, with different flavors:
+A Python Jupyter kernel, with different flavors:
+- concurrent cell execution,
 - reactive programming,
 - cell execution caching,
 - multi-kernel emulation.
@@ -20,11 +21,12 @@ pip install akernel
 You can parameterize akernel's execution mode:
 
 ```bash
-akernel install  # default (async)
+akernel install  # default (chained cell execution mode)
+akernel install concurrent  # concurrent cell execution mode
 akernel install react  # reactive programming mode
 akernel install cache  # cell execution caching  mode
 akernel install multi  # multi-kernel emulation mode
-akernel install cache-multi-react  # you can combine several modes
+akernel install cache-multi-react-concurrent  # you can combine several modes
 ```
 
 ## Motivation
@@ -34,13 +36,28 @@ akernel install cache-multi-react  # you can combine several modes
 This means you can `await` at the top-level, outside of an async function. Unfortunately, this will still
 block the kernel.
 
-akernel changes this behavior by launching each cell in a task.
+akernel changes this behavior by launching each cell in a task. By default, cell tasks are chained, which
+means that a cell will start executing after the previous one is done. You might wonder, is it not the same
+as ipykernel then? Well, not quite. In ipykernel, when an async cell is executing, it also blocks the
+processing of
+[Comm messages](https://jupyter-client.readthedocs.io/en/stable/messaging.html#custom-messages), which
+prevents the kernel from interacting with e.g. JupyterLab widgets (see
+[here](https://github.com/ipython/ipykernel/issues/646) and
+[there](https://github.com/ipython/ipykernel/issues/696)). In akernel, it will not be the case.
 
-akernel now also supports reactive programming, although it is still experimental!
+If you want to go all the way and have cells execute concurrently, you can also do so (see below).
 
 ## Features
 
 ### Asynchronous execution
+
+First, set the concurrent execution mode in order to have async cells execute concurrently
+(you could also do that at install-time with `akernel install concurrent`):
+
+```python
+__unchain_execution__()
+# __chain_execution__()
+```
 
 akernel allows for asynchronous code execution. What this means is that when used in a Jupyter
 notebook, you can run cells concurrently if the code is cooperative. For instance, you can run a

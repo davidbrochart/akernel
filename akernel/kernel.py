@@ -7,7 +7,6 @@ from contextvars import ContextVar
 from typing import Dict, Any, List, Optional, Union, Awaitable, cast
 
 from zmq.asyncio import Socket
-
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -71,12 +70,14 @@ class Kernel:
         self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
         self.cache_dir = cache_dir
+        self._concurrent_kernel = None
         self._multi_kernel = None
         self._cache_kernel = None
         self._react_kernel = None
         self.kernel_initialized = []
         self.globals = {}
         self.locals = {}
+        self._chain_execution = not self.concurrent_kernel
         self.running_cells = {}
         self.task_i = 0
         self.execution_count = 1
@@ -115,6 +116,18 @@ class Kernel:
                 self.shell_task.cancel()
                 self.control_task.cancel()
 
+    def chain_execution(self) -> None:
+        self._chain_execution = True
+
+    def unchain_execution(self) -> None:
+        self._chain_execution = False
+
+    @property
+    def concurrent_kernel(self):
+        if self._concurrent_kernel is None:
+            self._concurrent_kernel = "concurrent" in self.kernel_mode
+        return self._concurrent_kernel
+
     @property
     def multi_kernel(self):
         if self._multi_kernel is None:
@@ -142,6 +155,8 @@ class Kernel:
             "asyncio": asyncio,
             "print": self.print,
             "__task__": self.task,
+            "__chain_execution__": self.chain_execution,
+            "__unchain_execution__": self.unchain_execution,
             "_": None,
         }
         self.locals[namespace] = {}
@@ -338,6 +353,8 @@ class Kernel:
         code: str,
         cache_info: Dict[str, Any],
     ) -> None:
+        if self._chain_execution:
+            await self.task()
         PARENT_VAR.set(parent)
         IDENTS_VAR.set(idents)
         parent_header = parent["header"]
