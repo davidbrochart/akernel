@@ -38,6 +38,7 @@ test = [
     "black",
     "pytest",
     "pytest-asyncio",
+    "pytest-rerunfailures",
     "types-python-dateutil",
     "kernel_driver >=0.0.7",
     "ipyx >=0.1.7",

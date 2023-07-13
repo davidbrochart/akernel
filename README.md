@@ -49,7 +49,7 @@ If you want to go all the way and have cells execute concurrently, you can also 
 
 ## Features
 
-### Asynchronous execution
+### Concurrent execution
 
 First, set the concurrent execution mode in order to have async cells execute concurrently
 (you could also do that at install-time with `akernel install concurrent`):
