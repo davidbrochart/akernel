@@ -18,9 +18,12 @@ def install(
 ):
     name = "akernel"
     if mode:
+        modes = mode.split("-")
+        modes.sort()
+        mode = "-".join(modes)
         name += f"-{mode}"
     display_name = f"Python 3 ({name})"
-    write_kernelspec("akernel", mode, display_name, cache_dir)
+    write_kernelspec(name, mode, display_name, cache_dir)
 
 
 @cli.command()

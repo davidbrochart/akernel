@@ -1,4 +1,5 @@
 #!/bin/bash
 
 python -m pip install -e .
+akernel install
 akernel install react
