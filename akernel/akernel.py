@@ -16,14 +16,14 @@ def install(
         None, "-c", help="Path to the cache directory, if mode is 'cache'."
     ),
 ):
-    name = "akernel"
+    kernel_name = "akernel"
     if mode:
         modes = mode.split("-")
         modes.sort()
         mode = "-".join(modes)
-        name += f"-{mode}"
-    display_name = f"Python 3 ({name})"
-    write_kernelspec(name, mode, display_name, cache_dir)
+        kernel_name += f"-{mode}"
+    display_name = f"Python 3 ({kernel_name})"
+    write_kernelspec(kernel_name, mode, display_name, cache_dir)
 
 
 @cli.command()

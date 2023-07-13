@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import uuid
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import List, Dict, Tuple, Any, Optional, cast
+from typing import List, Dict, Tuple, Any, cast
 
 from zmq.utils import jsonapi
 from zmq.asyncio import Socket
@@ -86,7 +88,7 @@ def serialize(msg: Dict[str, Any], key: str, address: bytes = b"") -> List[bytes
 
 async def receive_message(
     sock: Socket, timeout: float = float("inf")
-) -> Optional[Tuple[List[bytes], Dict[str, Any]]]:
+) -> Tuple[List[bytes], Dict[str, Any]] | None:
     timeout *= 1000  # in ms
     ready = await sock.poll(timeout)
     if ready:
@@ -101,7 +103,7 @@ def send_message(
     sock: Socket,
     key: str,
     address: bytes = b"",
-    buffers: Optional[List] = None,
+    buffers: List | None = None,
 ) -> None:
     to_send = serialize(msg, key, address)
     buffers = buffers or []

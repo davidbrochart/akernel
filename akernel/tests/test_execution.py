@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import sys
 import time
 from textwrap import dedent
 import re
 from math import sin
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any
 
 import pytest
 
@@ -12,16 +14,15 @@ from akernel.execution import execute
 
 async def run(
     code: str,
-    globals_: Optional[Dict[str, Any]] = None,
-    chain: bool = False,
+    globals_: Dict[str, Any] | None = None,
     react: bool = False,
-    cache: Optional[Dict[str, Any]] = None,
+    cache: Dict[str, Any] | None = None,
 ) -> Tuple[Any, List[str], bool, Dict[str, Any], Dict[str, Any]]:
     if globals_ is None:
         globals_ = {}
     locals_: Dict[str, Any] = {}
     result, traceback, interrupted = await execute(
-        code, globals_, locals_, chain=chain, react=react, cache=cache
+        code, globals_, locals_, react=react, cache=cache
     )
     if "__builtins__" in globals_:
         del globals_["__builtins__"]

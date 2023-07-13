@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import sys
 import platform
 import asyncio
 import json
 from io import StringIO
 from contextvars import ContextVar
-from typing import Dict, Any, List, Optional, Union, Awaitable, cast
+from typing import Dict, Any, List, Union, Awaitable, cast
 
 from zmq.asyncio import Socket
 import comm  # type: ignore
@@ -41,22 +43,23 @@ class Kernel:
     key: str
     comm_manager: CommManager
     kernel_mode: str
+    cell_done: Dict[int, asyncio.Event]
     running_cells: Dict[int, asyncio.Task]
     task_i: int
     execution_count: int
     execution_state: str
     globals: Dict[str, Dict[str, Any]]
     locals: Dict[str, Dict[str, Any]]
-    _multi_kernel: Optional[bool]
-    _cache_kernel: Optional[bool]
-    _react_kernel: Optional[bool]
+    _multi_kernel: bool | None
+    _cache_kernel: bool | None
+    _react_kernel: bool | None
     kernel_initialized: List[str]
-    cache: Optional[Dict[str, Any]]
+    cache: Dict[str, Any] | None
 
     def __init__(
         self,
         kernel_mode: str,
-        cache_dir: Optional[str],
+        cache_dir: str | None,
         connection_file: str,
     ):
         global KERNEL
@@ -78,6 +81,7 @@ class Kernel:
         self.globals = {}
         self.locals = {}
         self._chain_execution = not self.concurrent_kernel
+        self.cell_done = {}
         self.running_cells = {}
         self.task_i = 0
         self.execution_count = 1
@@ -258,6 +262,7 @@ class Kernel:
                     code,
                     self.globals[namespace],
                     self.locals[namespace],
+                    self.task_i,
                     self.execution_count,
                     react=self.react_kernel,
                     cache=self.cache,
@@ -289,6 +294,7 @@ class Kernel:
                             cache_info,
                         )
                     )
+                    self.cell_done[self.task_i] = asyncio.Event()
                     self.running_cells[self.task_i] = task
                     self.task_i += 1
                     self.execution_count += 1
@@ -353,15 +359,17 @@ class Kernel:
         code: str,
         cache_info: Dict[str, Any],
     ) -> None:
-        if self._chain_execution:
-            await self.task()
+        prev_task_i = task_i - 1
+        if self._chain_execution and prev_task_i in self.cell_done:
+            await self.cell_done[prev_task_i].wait()
+            del self.cell_done[prev_task_i]
         PARENT_VAR.set(parent)
         IDENTS_VAR.set(idents)
         parent_header = parent["header"]
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
         try:
-            result = await self.locals[namespace]["__async_cell__"]()
+            result = await self.locals[namespace][f"__async_cell{task_i}__"]()
         except KeyboardInterrupt:
             self.interrupt()
         except Exception as e:
@@ -371,6 +379,8 @@ class Kernel:
             self.show_result(result, self.globals[namespace], parent_header)
             cache_execution(self.cache, cache_info, self.globals[namespace], result)
         finally:
+            self.cell_done[task_i].set()
+            del self.locals[namespace][f"__async_cell{task_i}__"]
             self.finish_execution(
                 idents,
                 parent_header,
@@ -385,8 +395,8 @@ class Kernel:
         self,
         idents: List[bytes],
         parent_header: Dict[str, Any],
-        execution_count: Optional[int],
-        exception: Optional[Exception] = None,
+        execution_count: int | None,
+        exception: Exception | None = None,
         no_exec: bool = False,
         traceback: List[str] = [],
         result=None,

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import hashlib
 import pickle
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any
 
 from colorama import Fore, Style  # type: ignore
 
@@ -12,16 +14,17 @@ def pre_execute(
     code: str,
     globals_: Dict[str, Any],
     locals_: Dict[str, Any],
+    task_i: int | None = None,
     execution_count: int = 0,
     react: bool = False,
-    cache: Optional[Dict[str, Any]] = None,
-) -> Tuple[List[str], Optional[SyntaxError], Dict[str, Any]]:
+    cache: Dict[str, Any] | None = None,
+) -> Tuple[List[str], SyntaxError | None, Dict[str, Any]]:
     traceback = []
     exception = None
     cache_info: Dict[str, Any] = {"cached": False}
 
     try:
-        transform = Transform(code, react)
+        transform = Transform(code, task_i, react)
         async_bytecode = transform.get_async_bytecode()
         exec(async_bytecode, globals_, locals_)
     except SyntaxError as e:
@@ -100,7 +103,7 @@ def pre_execute(
 
 
 def cache_execution(
-    cache: Optional[Dict[str, Any]],
+    cache: Dict[str, Any] | None,
     cache_info: Dict[str, Any],
     globals_: Dict[str, Any],
     result: Any,
@@ -132,9 +135,8 @@ async def execute(
     code: str,
     globals_: Dict[str, Any],
     locals_: Dict[str, Any],
-    chain: bool = False,
     react: bool = False,
-    cache: Optional[Dict[str, Any]] = None,
+    cache: Dict[str, Any] | None = None,
 ) -> Tuple[Any, List[str], bool]:
     result = None
     interrupted = False
@@ -147,8 +149,6 @@ async def execute(
     if cache_info["cached"]:
         result = cache_info["result"]
     else:
-        if chain:
-            await locals_["__task__"]()
         try:
             result = await locals_["__async_cell__"]()
         except KeyboardInterrupt:

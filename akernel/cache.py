@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 import os
 import pickle
 import sys
 import zlib
-from typing import Optional
 
 from zict import File, Func, LRU  # type: ignore
 
 
-def cache(cache_dir: Optional[str]):
+def cache(cache_dir: str | None):
     if not cache_dir:
         cache_dir = os.path.join(
             sys.prefix, "share", "jupyter", "kernels", "akernel", "cache"

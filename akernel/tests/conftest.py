@@ -12,6 +12,9 @@ def all_modes(request):
     mode = request.param
     kernel_name = "akernel"
     if mode:
+        modes = mode.split("-")
+        modes.sort()
+        mode = "-".join(modes)
         kernel_name += f"-{mode}"
     if mode == "cache":
         cache_dir = os.path.join(
@@ -19,4 +22,4 @@ def all_modes(request):
         )
         shutil.rmtree(cache_dir, ignore_errors=True)
     display_name = f"Python 3 ({kernel_name})"
-    write_kernelspec("akernel", mode, display_name, None)
+    write_kernelspec(kernel_name, mode, display_name, None)

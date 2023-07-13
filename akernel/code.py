@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 
 import gast  # type: ignore
@@ -90,8 +92,11 @@ body_globals_update_locals = gast.parse("globals().update(locals())").body
 
 
 class Transform:
-    def __init__(self, code: str, react: bool = False) -> None:
+    def __init__(
+        self, code: str, task_i: int | None = None, react: bool = False
+    ) -> None:
         self.gtree = gast.parse(code)
+        self.task_i = task_i
         self.react = react
         c = GlobalUseCollector()
         c.visit(self.gtree)
@@ -115,9 +120,12 @@ class Transform:
             new_body += self.gtree.body + body_globals_update_locals + last_statement
         else:
             new_body += self.gtree.body + body_globals_update_locals
+        name = (
+            "__async_cell__" if self.task_i is None else f"__async_cell{self.task_i}__"
+        )
         body = [
             gast.AsyncFunctionDef(
-                name="__async_cell__",
+                name=name,
                 args=gast.arguments(
                     args=[],
                     posonlyargs=[],

@@ -1,11 +1,12 @@
+from __future__ import annotations
+
 import os
 import sys
 import json
-from typing import Optional
 
 
 def write_kernelspec(
-    dir_name: str, mode: str, display_name: str, cache_dir: Optional[str]
+    dir_name: str, mode: str, display_name: str, cache_dir: str | None
 ) -> None:
     argv = ["akernel", "launch"]
     if mode:

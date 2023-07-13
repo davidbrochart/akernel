@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import sys
 import types
-from typing import Optional, cast
+from typing import cast
 
 from colorama import Fore, Style  # type: ignore
 
@@ -13,7 +15,7 @@ def get_traceback(code: str, exception, execution_count: int = 0):
             break
         tb = tb.tb_next
     stack = []
-    frame: Optional[types.FrameType] = tb.tb_frame
+    frame: types.FrameType | None = tb.tb_frame
     while True:
         assert frame is not None
         stack.append(frame)
@@ -31,7 +33,7 @@ def get_traceback(code: str, exception, execution_count: int = 0):
             with open(filename) as f:
                 code = f.read()
             filename = f"{Fore.CYAN}File{Style.RESET_ALL} {Fore.GREEN}{filename}{Style.RESET_ALL}"
-        if frame.f_code.co_name == "__async_cell__":
+        if frame.f_code.co_name.startswith("__async_cell"):
             name = "<module>"
         else:
             name = frame.f_code.co_name

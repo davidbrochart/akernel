@@ -101,9 +101,7 @@ async def test_global_variable(capfd, all_modes):
 async def test_concurrent_cells(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(
-        kd.execute("__unchain_execution__()", timeout=TIMEOUT)
-    )
+    asyncio.create_task(kd.execute("__unchain_execution__()", timeout=TIMEOUT))
     asyncio.create_task(
         kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT)
     )
@@ -141,9 +139,7 @@ async def test_chained_cells(capfd, all_modes):
 async def test_interrupt_async(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(
-        kd.execute("__unchain_execution__()", timeout=TIMEOUT)
-    )
+    asyncio.create_task(kd.execute("__unchain_execution__()", timeout=TIMEOUT))
     expected = []
     n0, n1 = 2, 3
     for i0 in range(n0):
