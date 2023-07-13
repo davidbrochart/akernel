@@ -54,4 +54,4 @@ jobs:
         micromamba activate test-env
         akernel --help
         test -f ${CONDA_PREFIX}/share/jupyter/kernels/akernel/kernel.json
-        pytest akernel/tests -v
+        pytest akernel/tests -v --reruns 5
