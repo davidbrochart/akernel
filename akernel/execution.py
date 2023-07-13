@@ -132,6 +132,7 @@ async def execute(
     code: str,
     globals_: Dict[str, Any],
     locals_: Dict[str, Any],
+    chain: bool = False,
     react: bool = False,
     cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, List[str], bool]:
@@ -146,6 +147,8 @@ async def execute(
     if cache_info["cached"]:
         result = cache_info["result"]
     else:
+        if chain:
+            await locals_["__task__"]()
         try:
             result = await locals_["__async_cell__"]()
         except KeyboardInterrupt:

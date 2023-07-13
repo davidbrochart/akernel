@@ -13,6 +13,7 @@ from akernel.execution import execute
 async def run(
     code: str,
     globals_: Optional[Dict[str, Any]] = None,
+    chain: bool = False,
     react: bool = False,
     cache: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, List[str], bool, Dict[str, Any], Dict[str, Any]]:
@@ -20,7 +21,7 @@ async def run(
         globals_ = {}
     locals_: Dict[str, Any] = {}
     result, traceback, interrupted = await execute(
-        code, globals_, locals_, react=react, cache=cache
+        code, globals_, locals_, chain=chain, react=react, cache=cache
     )
     if "__builtins__" in globals_:
         del globals_["__builtins__"]
