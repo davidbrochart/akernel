@@ -20,38 +20,29 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: [ '3.8', '3.9', '3.10.0', '3.11' ]
+        python-version: [ '3.9', '3.10.0', '3.11', '3.12', '3.13' ]
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    - name: Setup conda
-      uses: mamba-org/setup-micromamba@v1
+    - name: Setup Python
+      uses: actions/setup-python@v5
       with:
-        init-shell: bash powershell
-        cache-environment: true
-        post-cleanup: 'all'
-        environment-name: test-env
-        create-args: >-
-          python=${{ matrix.python-version }}
-          pip
+        python-version: ${{ matrix.python-version }}
 
     - name: Install akernel
       run: |
-        micromamba activate test-env
-        pip install .[test]
+        pip install . --group test
 
     - name: Check style and types
       run: |
-        micromamba activate test-env
-        black --check akernel
-        ruff check akernel
-        mypy akernel
+        black --check src
+        ruff check src
+        mypy src
 
     - name: Run tests
       run: |
-        micromamba activate test-env
         akernel --help
         test -f ${CONDA_PREFIX}/share/jupyter/kernels/akernel/kernel.json
-        pytest akernel/tests -v --reruns 5
+        pytest -v --reruns 5

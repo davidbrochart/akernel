@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "akernel"
-dynamic = ["version"]
+version = "0.2.1"
 description = "An asynchronous Python Jupyter kernel"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [{name = "David Brochart", email = "david.brochart@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -17,6 +17,8 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
@@ -31,7 +33,7 @@ dependencies = [
     "comm >=0.1.3,<1",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 test = [
     "mypy",
     "ruff",
@@ -45,6 +47,7 @@ test = [
     "zict",
 ]
 
+[project.optional-dependencies]
 react = [
     "ipyx >=0.1.7",
 ]
@@ -56,14 +59,15 @@ cache = [
 [project.scripts]
 akernel = "akernel.akernel:cli"
 
+[tool.hatch.build.targets.wheel]
+ignore-vcs = true
+packages = ["src/akernel"]
+
 [tool.hatch.build.targets.wheel.shared-data]
 "share/jupyter/kernels/akernel/kernel.json" = "share/jupyter/kernels/akernel/kernel.json"
 
 [project.urls]
 Homepage = "https://github.com/davidbrochart/akernel"
-
-[tool.hatch.version]
-path = "akernel/__init__.py"
 
 [tool.ruff]
 line-length = 100
