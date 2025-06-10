@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, List, Any, Callable
+from typing import Any, Callable
 
-import comm  # type: ignore
+import comm
 
 from ..message import send_message, create_message
 
@@ -11,9 +11,9 @@ class Comm(comm.base_comm.BaseComm):
     _msg_callback: Callable | None
     comm_id: str
     topic: bytes
-    parent_header: Dict[str, Any]
+    parent_header: dict[str, Any]
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         from akernel.kernel import KERNEL, PARENT_VAR, Kernel
 
         self.kernel: Kernel = KERNEL
@@ -23,10 +23,10 @@ class Comm(comm.base_comm.BaseComm):
     def publish_msg(
         self,
         msg_type: str,
-        data: Dict[str, Any],
-        metadata: Dict[str, Any],
-        buffers: List[bytes],
-        **keys,
+        data: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        buffers: list[bytes] | None = None,
+        **keys: Any,
     ) -> None:
         msg = create_message(
             msg_type,
@@ -42,7 +42,7 @@ class Comm(comm.base_comm.BaseComm):
             buffers=buffers,
         )
 
-    def handle_msg(self, msg: Dict[str, Any]) -> None:
+    def handle_msg(self, msg: dict[str, Any]) -> None:
         if self._msg_callback:
             self.kernel.execution_state = "busy"
             msg2 = create_message(

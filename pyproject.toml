@@ -37,7 +37,6 @@ dependencies = [
 test = [
     "mypy",
     "ruff",
-    "black",
     "pytest",
     "pytest-asyncio",
     "pytest-rerunfailures",
@@ -71,3 +70,4 @@ Homepage = "https://github.com/davidbrochart/akernel"
 
 [tool.ruff]
 line-length = 100
+exclude = ["examples"]

@@ -9,9 +9,7 @@ def test_assign_constant():
         a = 1
         """
     ).strip()
-    expected = (
-        code_assign.replace("lhs", "a").replace("rhs.v", "1 .v").replace("rhs", "1")
-    )
+    expected = code_assign.replace("lhs", "a").replace("rhs.v", "1 .v").replace("rhs", "1")
     assert Transform(code, react=True).get_code() == expected
 
 

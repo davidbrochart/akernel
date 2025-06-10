@@ -10,9 +10,7 @@ from kernel_driver import KernelDriver  # type: ignore
 
 
 TIMEOUT = 5
-KERNELSPEC_PATH = (
-    os.environ["CONDA_PREFIX"] + "/share/jupyter/kernels/akernel/kernel.json"
-)
+KERNELSPEC_PATH = os.environ["CONDA_PREFIX"] + "/share/jupyter/kernels/akernel/kernel.json"
 
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -102,12 +100,8 @@ async def test_concurrent_cells(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     asyncio.create_task(kd.execute("__unchain_execution__()", timeout=TIMEOUT))
-    asyncio.create_task(
-        kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT)
-    )
-    asyncio.create_task(
-        kd.execute("await asyncio.sleep(0.1)\nprint('done2')", timeout=TIMEOUT)
-    )
+    asyncio.create_task(kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
+    asyncio.create_task(kd.execute("await asyncio.sleep(0.1)\nprint('done2')", timeout=TIMEOUT))
     await asyncio.sleep(0.5)
     await kd.stop()
 
@@ -119,9 +113,7 @@ async def test_concurrent_cells(capfd, all_modes):
 async def test_chained_cells(capfd, all_modes):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(
-        kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT)
-    )
+    asyncio.create_task(kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
     asyncio.create_task(
         kd.execute(
             "await __task__()\nawait asyncio.sleep(0.1)\nprint('done2')",
@@ -197,9 +189,7 @@ async def test_interrupt_blocking(capfd, all_modes):
         )
     )
     asyncio.create_task(
-        kd.execute(
-            "print('before 1')\ntime.sleep(1)\nprint('after 1')", timeout=TIMEOUT
-        )
+        kd.execute("print('before 1')\ntime.sleep(1)\nprint('after 1')", timeout=TIMEOUT)
     )
     await asyncio.sleep(0.1)
     interrupt_kernel(kd.kernel_process)

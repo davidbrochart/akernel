@@ -92,9 +92,7 @@ body_globals_update_locals = gast.parse("globals().update(locals())").body
 
 
 class Transform:
-    def __init__(
-        self, code: str, task_i: int | None = None, react: bool = False
-    ) -> None:
+    def __init__(self, code: str, task_i: int | None = None, react: bool = False) -> None:
         self.gtree = gast.parse(code)
         self.task_i = task_i
         self.react = react
@@ -120,9 +118,7 @@ class Transform:
             new_body += self.gtree.body + body_globals_update_locals + last_statement
         else:
             new_body += self.gtree.body + body_globals_update_locals
-        name = (
-            "__async_cell__" if self.task_i is None else f"__async_cell{self.task_i}__"
-        )
+        name = "__async_cell__" if self.task_i is None else f"__async_cell{self.task_i}__"
         body = [
             gast.AsyncFunctionDef(
                 name=name,
@@ -169,16 +165,12 @@ class Transform:
                         ):
                             # RHS
                             rhs_calls = [
-                                n
-                                for n in gast.walk(statement.value)
-                                if isinstance(n, gast.Call)
+                                n for n in gast.walk(statement.value) if isinstance(n, gast.Call)
                             ]
                             for n in rhs_calls:
                                 ipyx_name = gast.Name(id="ipyx", ctx=gast.Load())
                                 n.func = gast.Call(
-                                    func=gast.Attribute(
-                                        value=ipyx_name, attr="F", ctx=gast.Load()
-                                    ),
+                                    func=gast.Attribute(value=ipyx_name, attr="F", ctx=gast.Load()),
                                     args=[n.func],
                                     keywords=[],
                                 )
@@ -243,9 +235,7 @@ class GlobalUseCollector(gast.NodeVisitor):
     def visit_Assign(self, node):
         ctx, g = self.context[-1]
         if ctx == "global":
-            self.outputs += [
-                target.id for target in node.targets if isinstance(target, gast.Name)
-            ]
+            self.outputs += [target.id for target in node.targets if isinstance(target, gast.Name)]
         self.generic_visit(node)
 
     def visit_AugAssign(self, node):

@@ -102,9 +102,7 @@ class Kernel:
         self.iopub_channel = connect_channel("iopub", self.connection_cfg)
         self.control_channel = connect_channel("control", self.connection_cfg)
         self.stdin_channel = connect_channel("stdin", self.connection_cfg)
-        msg = self.create_message(
-            "status", content={"execution_state": self.execution_state}
-        )
+        msg = self.create_message("status", content={"execution_state": self.execution_state})
         send_message(msg, self.iopub_channel, self.key)
         self.execution_state = "idle"
         self.stop = asyncio.Event()
@@ -166,8 +164,7 @@ class Kernel:
         self.locals[namespace] = {}
         if self.react_kernel:
             code = (
-                "import ipyx, ipywidgets;"
-                "globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
+                "import ipyx, ipywidgets;globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
             )
             exec(code, self.globals[namespace], self.locals[namespace])
 
@@ -314,10 +311,7 @@ class Kernel:
                         parent_header=parent_header,
                         content={
                             "status": "ok",
-                            "comms": {
-                                comm_id: {"target_name": target_name}
-                                for comm_id in comms
-                            },
+                            "comms": {comm_id: {"target_name": target_name} for comm_id in comms},
                         },
                     )
                     send_message(msg2, self.shell_channel, self.key, idents[0])
@@ -329,7 +323,7 @@ class Kernel:
                 )
                 send_message(msg2, self.iopub_channel, self.key)
             elif msg_type == "comm_msg":
-                self.comm_manager.comm_msg(None, None, msg)
+                self.comm_manager.comm_msg(None, None, msg)  # type: ignore[arg-type]
 
     async def listen_control(self) -> None:
         while True:

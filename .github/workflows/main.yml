@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: [ '3.9', '3.10.0', '3.11', '3.12', '3.13' ]
+        python-version: [ '3.9', '3.10', '3.11', '3.12', '3.13' ]
 
     steps:
     - name: Checkout
@@ -37,8 +37,8 @@ jobs:
 
     - name: Check style and types
       run: |
-        black --check src
-        ruff check src
+        ruff check --show-fixes
+        ruff format --check
         mypy src
 
     - name: Run tests
