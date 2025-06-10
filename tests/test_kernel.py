@@ -3,6 +3,7 @@ import sys
 import asyncio
 import signal
 import re
+from pathlib import Path
 from textwrap import dedent
 
 import pytest
@@ -10,7 +11,7 @@ from kernel_driver import KernelDriver  # type: ignore
 
 
 TIMEOUT = 5
-KERNELSPEC_PATH = os.environ["CONDA_PREFIX"] + "/share/jupyter/kernels/akernel/kernel.json"
+KERNELSPEC_PATH = str(Path(sys.prefix) / "share" / "jupyter" / "kernels" / "akernel" / "kernel.json")
 
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
