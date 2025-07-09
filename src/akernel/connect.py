@@ -1,12 +1,13 @@
-import zmq
-from typing import Dict, Union
+from __future__ import annotations
 
-from zmq.asyncio import Context, Socket
+import zmq
+from zmq import Context
+from zmq_anyio import Socket
 
 
 context = Context()
 
-cfg_t = Dict[str, Union[str, int]]
+cfg_t = dict[str, str | int]
 
 channel_socket_types = {
     "shell": zmq.ROUTER,
@@ -21,12 +22,11 @@ def create_socket(channel: str, cfg: cfg_t) -> Socket:
     port = cfg[f"{channel}_port"]
     url = f"tcp://{ip}:{port}"
     socket_type = channel_socket_types[channel]
-    sock = context.socket(socket_type)
+    sock = Socket(context.socket(socket_type))
     sock.linger = 1000
     sock.bind(url)
     return sock
 
 
 def connect_channel(channel_name: str, cfg: cfg_t) -> Socket:
-    sock = create_socket(channel_name, cfg)
-    return sock
+    return create_socket(channel_name, cfg)

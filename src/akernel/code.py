@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 
 import gast  # type: ignore
@@ -48,9 +49,9 @@ code_return = dedent(
     """
 ).strip()
 
-body_declare = gast.parse(code_declare).body
-body_assign = gast.parse(code_assign).body
-body_return = gast.parse(code_return).body
+body_declare = ast.parse(code_declare).body
+body_assign = ast.parse(code_assign).body
+body_return = ast.parse(code_return).body
 
 
 def get_declare_body(lhs: str):
@@ -88,12 +89,12 @@ def get_return_body(val):
     return body
 
 
-body_globals_update_locals = gast.parse("globals().update(locals())").body
+body_globals_update_locals = ast.parse("globals().update(locals())").body
 
 
 class Transform:
     def __init__(self, code: str, task_i: int | None = None, react: bool = False) -> None:
-        self.gtree = gast.parse(code)
+        self.gtree = ast.parse(code)
         self.task_i = task_i
         self.react = react
         c = GlobalUseCollector()
@@ -105,24 +106,24 @@ class Transform:
         if react:
             self.make_react()
 
-    def get_async_ast(self) -> gast.Module:
+    def get_async_ast(self) -> ast.Module:
         new_body = []
         if self.globals:
-            new_body += [gast.Global(names=list(self.globals))]
-        if isinstance(self.last_statement, gast.Expr):
+            new_body += [ast.Global(names=list(self.globals))]
+        if isinstance(self.last_statement, ast.Expr):
             self.gtree.body.remove(self.last_statement)
             if self.react:
                 last_statement = get_return_body(self.last_statement.value)
             else:
-                last_statement = [gast.Return(value=self.last_statement.value)]
+                last_statement = [ast.Return(value=self.last_statement.value)]
             new_body += self.gtree.body + body_globals_update_locals + last_statement
         else:
             new_body += self.gtree.body + body_globals_update_locals
         name = "__async_cell__" if self.task_i is None else f"__async_cell{self.task_i}__"
         body = [
-            gast.AsyncFunctionDef(
+            ast.AsyncFunctionDef(
                 name=name,
-                args=gast.arguments(
+                args=ast.arguments(
                     args=[],
                     posonlyargs=[],
                     vararg=None,
@@ -137,20 +138,20 @@ class Transform:
                 type_comment=None,
             ),
         ]
-        gtree = gast.Module(body=body, type_ignores=[])
-        gast.fix_missing_locations(gtree)
+        gtree = ast.Module(body=body, type_ignores=[])
+        ast.fix_missing_locations(gtree)
         return gtree
 
     def get_code(self) -> str:
-        return gast.unparse(self.gtree)
+        return ast.unparse(self.gtree)
 
     def get_async_code(self) -> str:
         gtree = self.get_async_ast()
-        return gast.unparse(gtree)
+        return ast.unparse(gtree)
 
     def get_async_bytecode(self) -> CodeType:
-        gtree = self.get_async_ast()
-        tree = gast.gast_to_ast(gtree)
+        tree = self.get_async_ast()
+        #tree = gast.gast_to_ast(gtree)
         bytecode = compile(tree, filename="<string>", mode="exec")
         return bytecode
 

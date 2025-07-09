@@ -13,7 +13,6 @@ authors = [{name = "David Brochart", email = "david.brochart@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -24,12 +23,9 @@ classifiers = [
 ]
 keywords = [ "jupyter" ]
 dependencies = [
-    "pyzmq",
-    "typer >=0.4.0",
-    "click",
     "python-dateutil",
     "colorama",
-    "gast >=0.5.3",
+    "gast >=0.6.0, <0.7.0",
     "comm >=0.1.3,<1",
 ]
 
@@ -47,6 +43,11 @@ test = [
 ]
 
 [project.optional-dependencies]
+subprocess = [
+    "zmq-anyio >=0.3.9,<0.4.0",
+    "typer >=0.4.0",
+]
+
 react = [
     "ipyx >=0.1.7",
 ]
@@ -71,3 +72,6 @@ Homepage = "https://github.com/davidbrochart/akernel"
 [tool.ruff]
 line-length = 100
 exclude = ["examples"]
+
+[tool.uv.sources]
+fps-akernel-task = { workspace = true }

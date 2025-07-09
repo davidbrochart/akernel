@@ -1,4 +1,4 @@
-from ..message import send_message, create_message
+from ..message import create_message, serialize
 
 
 def display(*args, raw: bool = False) -> None:
@@ -11,7 +11,8 @@ def display(*args, raw: bool = False) -> None:
         content=dict(data=data, transient={}, metadata={}),
         parent_header=parent_header,
     )
-    send_message(msg, KERNEL.iopub_channel, KERNEL.key)
+    to_send = serialize(msg, KERNEL.key)
+    KERNEL.from_iopub_send_stream.send_nowait(to_send)
 
 
 def clear_output() -> None:

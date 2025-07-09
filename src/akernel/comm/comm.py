@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 import comm
 
-from ..message import send_message, create_message
+from ..message import create_message, serialize
 
 
 class Comm(comm.base_comm.BaseComm):
@@ -33,14 +33,11 @@ class Comm(comm.base_comm.BaseComm):
             content=dict(data=data, comm_id=self.comm_id, **keys),
             metadata=metadata,
             parent_header=self.parent_header,
-        )
-        send_message(
-            msg,
-            self.kernel.iopub_channel,
-            self.kernel.key,
-            address=self.topic,
             buffers=buffers,
+            address=self.topic,
         )
+        to_send = serialize(msg, self.kernel.key)
+        self.kernel.from_iopub_send_stream.send_nowait(to_send)
 
     def handle_msg(self, msg: dict[str, Any]) -> None:
         if self._msg_callback:
@@ -50,7 +47,8 @@ class Comm(comm.base_comm.BaseComm):
                 parent_header=msg["header"],
                 content={"execution_state": self.kernel.execution_state},
             )
-            send_message(msg2, self.kernel.iopub_channel, self.kernel.key)
+            to_send = serialize(msg2, self.kernel.key)
+            self.kernel.from_iopub_send_stream.send_nowait(to_send)
             self._msg_callback(msg)
             self.kernel.execution_state = "idle"
             msg2 = create_message(
@@ -58,7 +56,8 @@ class Comm(comm.base_comm.BaseComm):
                 parent_header=msg["header"],
                 content={"execution_state": self.kernel.execution_state},
             )
-            send_message(msg2, self.kernel.iopub_channel, self.kernel.key)
+            to_send = serialize(msg2, self.kernel.key)
+            self.kernel.from_iopub_send_stream.send_nowait(to_send)
 
 
 comm.create_comm = Comm
