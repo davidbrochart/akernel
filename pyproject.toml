@@ -4,38 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "akernel"
-dynamic = ["version"]
+version = "0.2.1"
 description = "An asynchronous Python Jupyter kernel"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 authors = [{name = "David Brochart", email = "david.brochart@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 keywords = [ "jupyter" ]
 dependencies = [
-    "pyzmq",
-    "typer >=0.4.0",
-    "click",
     "python-dateutil",
     "colorama",
-    "gast >=0.5.3",
+    "gast >=0.6.0, <0.7.0",
     "comm >=0.1.3,<1",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 test = [
     "mypy",
     "ruff",
-    "black",
     "pytest",
     "pytest-asyncio",
     "pytest-rerunfailures",
@@ -43,6 +40,12 @@ test = [
     "kernel_driver >=0.0.7",
     "ipyx >=0.1.7",
     "zict",
+]
+
+[project.optional-dependencies]
+subprocess = [
+    "zmq-anyio >=0.3.9,<0.4.0",
+    "typer >=0.4.0",
 ]
 
 react = [
@@ -56,14 +59,19 @@ cache = [
 [project.scripts]
 akernel = "akernel.akernel:cli"
 
+[tool.hatch.build.targets.wheel]
+ignore-vcs = true
+packages = ["src/akernel"]
+
 [tool.hatch.build.targets.wheel.shared-data]
 "share/jupyter/kernels/akernel/kernel.json" = "share/jupyter/kernels/akernel/kernel.json"
 
 [project.urls]
 Homepage = "https://github.com/davidbrochart/akernel"
 
-[tool.hatch.version]
-path = "akernel/__init__.py"
-
 [tool.ruff]
 line-length = 100
+exclude = ["examples"]
+
+[tool.uv.sources]
+fps-akernel-task = { workspace = true }

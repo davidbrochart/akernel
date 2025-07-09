@@ -5,9 +5,7 @@ import sys
 import json
 
 
-def write_kernelspec(
-    dir_name: str, mode: str, display_name: str, cache_dir: str | None
-) -> None:
+def write_kernelspec(dir_name: str, mode: str, display_name: str, cache_dir: str | None) -> None:
     argv = ["akernel", "launch"]
     if mode:
         argv.append(mode)

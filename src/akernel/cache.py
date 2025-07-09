@@ -10,9 +10,7 @@ from zict import File, Func, LRU  # type: ignore
 
 def cache(cache_dir: str | None):
     if not cache_dir:
-        cache_dir = os.path.join(
-            sys.prefix, "share", "jupyter", "kernels", "akernel", "cache"
-        )
+        cache_dir = os.path.join(sys.prefix, "share", "jupyter", "kernels", "akernel", "cache")
 
     l4 = File(cache_dir)
     l3 = Func(zlib.compress, zlib.decompress, l4)

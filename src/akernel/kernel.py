@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import platform
-import asyncio
 import json
 from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Union, Awaitable, cast
 
-from zmq.asyncio import Socket
+from anyio import Event, create_task_group, sleep
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
 import akernel.IPython
 from akernel.IPython import core
 from .connect import connect_channel
-from .message import receive_message, send_message, create_message, check_message
+from .message import create_message, feed_identities, deserialize, serialize
 from .execution import pre_execute, cache_execution
 from .traceback import get_traceback
 from . import __version__
@@ -33,17 +33,12 @@ sys.modules["IPython.core"] = core
 
 
 class Kernel:
-    shell_channel: Socket
-    iopub_channel: Socket
-    control_channel: Socket
-    stdin_channel: Socket
-    connection_cfg: Dict[str, Union[str, int]]
-    stop: asyncio.Event
+    stop_event: Event
     restart: bool
     key: str
     comm_manager: CommManager
     kernel_mode: str
-    cell_done: Dict[int, asyncio.Event]
+    cell_done: Dict[int, Event]
     running_cells: Dict[int, asyncio.Task]
     task_i: int
     execution_count: int
@@ -53,31 +48,41 @@ class Kernel:
     _multi_kernel: bool | None
     _cache_kernel: bool | None
     _react_kernel: bool | None
-    kernel_initialized: List[str]
+    kernel_initialized: set[str]
     cache: Dict[str, Any] | None
 
     def __init__(
         self,
-        kernel_mode: str,
-        cache_dir: str | None,
-        connection_file: str,
+        to_shell_receive_stream,
+        from_shell_send_stream,
+        to_control_receive_stream,
+        from_control_send_stream,
+        to_stdin_receive_stream,
+        from_stdin_send_stream,
+        from_iopub_send_stream,
+        kernel_mode: str = "",
+        cache_dir: str | None = None,
     ):
         global KERNEL
         KERNEL = self
         self.comm_manager = CommManager()
+        comm.get_comm_manager = lambda: self.comm_manager
 
-        def get_comm_manager():
-            return self.comm_manager
+        self.to_shell_receive_stream = to_shell_receive_stream
+        self.from_shell_send_stream = from_shell_send_stream
+        self.to_control_receive_stream = to_control_receive_stream
+        self.from_control_send_stream = from_control_send_stream
+        self.to_stdin_receive_stream = to_stdin_receive_stream
+        self.from_stdin_send_stream = from_stdin_send_stream
+        self.from_iopub_send_stream = from_iopub_send_stream
 
-        comm.get_comm_manager = get_comm_manager
-        self.loop = asyncio.get_event_loop()
         self.kernel_mode = kernel_mode
         self.cache_dir = cache_dir
         self._concurrent_kernel = None
         self._multi_kernel = None
         self._cache_kernel = None
         self._react_kernel = None
-        self.kernel_initialized = []
+        self.kernel_initialized = set()
         self.globals = {}
         self.locals = {}
         self._chain_execution = not self.concurrent_kernel
@@ -86,9 +91,6 @@ class Kernel:
         self.task_i = 0
         self.execution_count = 1
         self.execution_state = "starting"
-        with open(connection_file) as f:
-            self.connection_cfg = json.load(f)
-        self.key = cast(str, self.connection_cfg["key"])
         self.restart = False
         self.interrupted = False
         self.msg_cnt = 0
@@ -98,27 +100,8 @@ class Kernel:
             self.cache = cache(cache_dir)
         else:
             self.cache = None
-        self.shell_channel = connect_channel("shell", self.connection_cfg)
-        self.iopub_channel = connect_channel("iopub", self.connection_cfg)
-        self.control_channel = connect_channel("control", self.connection_cfg)
-        self.stdin_channel = connect_channel("stdin", self.connection_cfg)
-        msg = self.create_message(
-            "status", content={"execution_state": self.execution_state}
-        )
-        send_message(msg, self.iopub_channel, self.key)
-        self.execution_state = "idle"
-        self.stop = asyncio.Event()
-        while True:
-            try:
-                self.loop.run_until_complete(self.main())
-            except KeyboardInterrupt:
-                self.interrupt()
-            else:
-                if not self.restart:
-                    break
-            finally:
-                self.shell_task.cancel()
-                self.control_task.cancel()
+        self.stop_event = Event()
+        self.key = "0"
 
     def chain_execution(self) -> None:
         self._chain_execution = True
@@ -166,14 +149,13 @@ class Kernel:
         self.locals[namespace] = {}
         if self.react_kernel:
             code = (
-                "import ipyx, ipywidgets;"
-                "globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
+                "import ipyx, ipywidgets;globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
             )
             exec(code, self.globals[namespace], self.locals[namespace])
 
-        self.kernel_initialized.append(namespace)
+        self.kernel_initialized.add(namespace)
 
-    def get_namespace(self, parent_header):
+    def get_namespace(self, parent_header) -> str:
         if self.multi_kernel:
             return parent_header["session"]
 
@@ -185,15 +167,32 @@ class Kernel:
             task.cancel()
         self.running_cells = {}
 
-    async def main(self) -> None:
-        self.shell_task = asyncio.create_task(self.listen_shell())
-        self.control_task = asyncio.create_task(self.listen_control())
+    async def start(self) -> None:
+        async with create_task_group() as self.task_group:
+            msg = self.create_message("status", content={"execution_state": self.execution_state})
+            to_send = serialize(msg, self.key)
+            await self.from_iopub_send_stream.send(to_send)
+            self.execution_state = "idle"
+            while True:
+                try:
+                    await self._start()
+                except KeyboardInterrupt:
+                    self.interrupt()
+                else:
+                    if not self.restart:
+                        break
+                finally:
+                    self.task_group.cancel_scope.cancel()
+
+    async def _start(self) -> None:
+        self.task_group.start_soon(self.listen_shell)
+        self.task_group.start_soon(self.listen_control)
         while True:
             # run until shutdown request
-            await self.stop.wait()
+            await self.stop_event.wait()
             if self.restart:
                 # kernel restart
-                self.stop.clear()
+                self.stop_event = Event()
             else:
                 # kernel shutdown
                 break
@@ -201,15 +200,15 @@ class Kernel:
     async def listen_shell(self) -> None:
         while True:
             # let a chance to execute a blocking cell
-            await asyncio.sleep(0)
+            await sleep(0)
             # if there was a blocking cell execution, and it was interrupted,
             # let's ignore all the following execution requests until the pipe
             # is empty
-            if self.interrupted and not await check_message(self.shell_channel):
+            if self.interrupted and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0:
                 self.interrupted = False
-            res = await receive_message(self.shell_channel)
-            assert res is not None
-            idents, msg = res
+            msg_list = await self.to_shell_receive_stream.receive()
+            idents, msg_list = feed_identities(msg_list)
+            msg = deserialize(msg_list)
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             parent = msg
@@ -230,14 +229,17 @@ class Kernel:
                         },
                         "banner": "Python " + sys.version,
                     },
+                    address=idents[0],
                 )
-                send_message(msg, self.shell_channel, self.key, idents[0])
+                to_send = serialize(msg, self.key)
+                await self.from_shell_send_stream.send(to_send)
                 msg = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
-                send_message(msg, self.iopub_channel, self.key)
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)
             elif msg_type == "execute_request":
                 self.execution_state = "busy"
                 code = msg["content"]["code"]
@@ -246,16 +248,18 @@ class Kernel:
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
-                send_message(msg, self.iopub_channel, self.key)
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)
                 if self.interrupted:
-                    self.finish_execution(idents, parent_header, None, no_exec=True)
+                    await self.finish_execution(idents, parent_header, None, no_exec=True)
                     continue
                 msg = self.create_message(
                     "execute_input",
                     parent_header=parent_header,
                     content={"code": code, "execution_count": self.execution_count},
                 )
-                send_message(msg, self.iopub_channel, self.key)
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)
                 namespace = self.get_namespace(parent_header)
                 self.init_kernel(namespace)
                 traceback, exception, cache_info = pre_execute(
@@ -268,7 +272,7 @@ class Kernel:
                     cache=self.cache,
                 )
                 if cache_info["cached"]:
-                    self.finish_execution(
+                    await self.finish_execution(
                         idents,
                         parent_header,
                         self.execution_count,
@@ -276,7 +280,7 @@ class Kernel:
                     )
                     self.execution_count += 1
                 elif traceback:
-                    self.finish_execution(
+                    await self.finish_execution(
                         idents,
                         parent_header,
                         self.execution_count,
@@ -305,7 +309,8 @@ class Kernel:
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
-                send_message(msg2, self.iopub_channel, self.key)
+                to_send = serialize(msg2, self.key)
+                await self.from_iopub_send_stream.send(to_send)
                 if "target_name" in msg["content"]:
                     target_name = msg["content"]["target_name"]
                     comms: List[str] = []
@@ -314,28 +319,28 @@ class Kernel:
                         parent_header=parent_header,
                         content={
                             "status": "ok",
-                            "comms": {
-                                comm_id: {"target_name": target_name}
-                                for comm_id in comms
-                            },
+                            "comms": {comm_id: {"target_name": target_name} for comm_id in comms},
                         },
+                        address=idents[0],
                     )
-                    send_message(msg2, self.shell_channel, self.key, idents[0])
+                    to_send = serialize(msg2, self.key)
+                    await self.from_shell_send_stream.send(to_send)
                 self.execution_state = "idle"
                 msg2 = self.create_message(
                     "status",
                     parent_header=parent_header,
                     content={"execution_state": self.execution_state},
                 )
-                send_message(msg2, self.iopub_channel, self.key)
+                to_send = serialize(msg2, self.key)
+                await self.from_iopub_send_stream.send(to_send)
             elif msg_type == "comm_msg":
-                self.comm_manager.comm_msg(None, None, msg)
+                self.comm_manager.comm_msg(None, None, msg)  # type: ignore[arg-type]
 
     async def listen_control(self) -> None:
         while True:
-            res = await receive_message(self.control_channel)
-            assert res is not None
-            idents, msg = res
+            msg_list = await self.to_control_receive_stream.receive()
+            idents, msg_list = feed_identities(msg_list)
+            msg = deserialize(msg_list)
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
             if msg_type == "shutdown_request":
@@ -344,11 +349,13 @@ class Kernel:
                     "shutdown_reply",
                     parent_header=parent_header,
                     content={"restart": self.restart},
+                    address=idents[0],
                 )
-                send_message(msg, self.control_channel, self.key, idents[0])
+                to_send = serialize(msg, self.key)
+                await self.from_control_send_stream.send(to_send)
                 if self.restart:
                     self.execution_count = 1
-                self.stop.set()
+                self.stop_event.set()
 
     async def execute_and_finish(
         self,
@@ -376,12 +383,12 @@ class Kernel:
             exception = e
             traceback = get_traceback(code, e, execution_count)
         else:
-            self.show_result(result, self.globals[namespace], parent_header)
+            await self.show_result(result, self.globals[namespace], parent_header)
             cache_execution(self.cache, cache_info, self.globals[namespace], result)
         finally:
             self.cell_done[task_i].set()
             del self.locals[namespace][f"__async_cell{task_i}__"]
-            self.finish_execution(
+            await self.finish_execution(
                 idents,
                 parent_header,
                 execution_count,
@@ -391,7 +398,7 @@ class Kernel:
             if task_i in self.running_cells:
                 del self.running_cells[task_i]
 
-    def finish_execution(
+    async def finish_execution(
         self,
         idents: List[bytes],
         parent_header: Dict[str, Any],
@@ -403,7 +410,7 @@ class Kernel:
     ) -> None:
         if result:
             namespace = self.get_namespace(parent_header)
-            self.show_result(result, self.globals[namespace], parent_header)
+            await self.show_result(result, self.globals[namespace], parent_header)
         if no_exec:
             status = "aborted"
         else:
@@ -419,22 +426,26 @@ class Kernel:
                         "traceback": traceback,
                     },
                 )
-                send_message(msg, self.iopub_channel, self.key)
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)
             else:
                 status = "ok"
         msg = self.create_message(
             "execute_reply",
             parent_header=parent_header,
             content={"status": status, "execution_count": execution_count},
+            address=idents[0],
         )
-        send_message(msg, self.shell_channel, self.key, idents[0])
+        to_send = serialize(msg, self.key)
+        await self.from_shell_send_stream.send(to_send)
         self.execution_state = "idle"
         msg = self.create_message(
             "status",
             parent_header=parent_header,
             content={"execution_state": self.execution_state},
         )
-        send_message(msg, self.iopub_channel, self.key)
+        to_send = serialize(msg, self.key)
+        await self.from_iopub_send_stream.send(to_send)
 
     def task(self, cell_i: int = -1) -> Awaitable:
         if cell_i < 0:
@@ -453,10 +464,13 @@ class Kernel:
                 "input_request",
                 parent_header=parent["header"],
                 content={"prompt": prompt, "password": False},
+                address=idents[0],
             )
-            send_message(msg, self.stdin_channel, self.key, idents[0])
-            res = await receive_message(self.stdin_channel)
-            assert res is not None
+            to_send = serialize(msg, self.key)
+            await self.from_stdin_send_stream.send(to_send)
+            msg_list = await self.to_stdin_receive_stream.receive()
+            idents, msg_list = feed_identities(msg_list)
+            msg = deserialize(msg_list)
             idents, msg = res
             if msg["content"]["status"] == "ok":
                 return msg["content"]["value"]
@@ -485,21 +499,27 @@ class Kernel:
             parent_header=PARENT_VAR.get()["header"],
             content={"name": name, "text": text},
         )
-        send_message(msg, self.iopub_channel, self.key)
+        to_send = serialize(msg, self.key)
+        self.from_iopub_send_stream.send_nowait(to_send)
 
     def create_message(
         self,
         msg_type: str,
         content: Dict = {},
         parent_header: Dict[str, Any] = {},
+        address: bytes | None = None,
     ) -> Dict[str, Any]:
         msg = create_message(
-            msg_type, content=content, parent_header=parent_header, msg_cnt=self.msg_cnt
+            msg_type,
+            content=content,
+            parent_header=parent_header,
+            msg_cnt=self.msg_cnt,
+            address=address,
         )
         self.msg_cnt += 1
         return msg
 
-    def show_result(self, result, globals_, parent_header):
+    async def show_result(self, result, globals_, parent_header):
         if result is not None:
             globals_["_"] = result
             send_stream = True
@@ -522,4 +542,5 @@ class Kernel:
                     parent_header=parent_header,
                     content={"name": "stdout", "text": f"{repr(result)}\n"},
                 )
-                send_message(msg, self.iopub_channel, self.key)
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)

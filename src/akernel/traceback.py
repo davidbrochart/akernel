@@ -43,8 +43,5 @@ def get_traceback(code: str, exception, execution_count: int = 0):
         ]
         trace.append(code.splitlines()[frame.f_lineno - 1])
         traceback += trace
-    traceback += [
-        f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
-        f"{exception.args[0]}"
-    ]
+    traceback += [f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}"]
     return traceback

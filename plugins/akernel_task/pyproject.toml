@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fps_akernel_task"
+version = "0.1.0"
+description = "An FPS plugin for the kernel task API"
+keywords = ["jupyter", "server", "fastapi", "plugins"]
+requires-python = ">=3.9"
+dependencies = [
+    "jupyverse-api >=0.10.0,<0.11.0",
+    "anyio",
+]
+
+[[project.authors]]
+name = "David Brochart"
+email = "david.brochart@gmail.com"
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[project.license]
+text = "MIT"
+
+[project.urls]
+Homepage = "https://github.com/davidbrochart/akernel"
+
+[project.entry-points]
+"fps.modules"       = {akernel_task = "fps_akernel_task.main:AKernelTaskModule"}
+"jupyverse.modules" = {akernel_task = "fps_akernel_task.main:AKernelTaskModule"}

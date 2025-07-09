@@ -43,8 +43,7 @@ def pre_execute(
             f"{Style.RESET_ALL}:",
             f"{Fore.RED}{exception.text.rstrip()}{Style.RESET_ALL}",
             (exception.offset - 1) * " " + "^",
-            f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: "
-            f"{exception.args[0]}",
+            f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}",
         ]
     else:
         if cache is not None:
