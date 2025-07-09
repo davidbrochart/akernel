@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "akernel"
-version = "0.2.1"
+version = "0.3.0"
 description = "An asynchronous Python Jupyter kernel"
 readme = "README.md"
 license = {text = "MIT"}
