@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import cast
+from typing import Optional, cast
 
 import typer
 from anyio import create_memory_object_stream, create_task_group, run, sleep_forever
@@ -18,7 +18,7 @@ cli = typer.Typer()
 @cli.command()
 def install(
     mode: str = typer.Argument("", help="Mode of the kernel to install."),
-    cache_dir: str | None = typer.Option(
+    cache_dir: Optional[str] = typer.Option(
         None, "-c", help="Path to the cache directory, if mode is 'cache'."
     ),
 ):
@@ -35,10 +35,10 @@ def install(
 @cli.command()
 def launch(
     mode: str = typer.Argument("", help="Mode of the kernel to launch."),
-    cache_dir: str | None = typer.Option(
+    cache_dir: Optional[str] = typer.Option(
         None, "-c", help="Path to the cache directory, if mode is 'cache'."
     ),
-    connection_file: str | None = typer.Option(None, "-f", help="Path to the connection file."),
+    connection_file: str = typer.Option(..., "-f", help="Path to the connection file."),
 ):
     akernel = AKernel(mode, cache_dir, connection_file)
     run(akernel.start)
