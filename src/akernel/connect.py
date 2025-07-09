@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Union
+
 import zmq
 from zmq import Context
 from zmq_anyio import Socket
@@ -7,7 +9,7 @@ from zmq_anyio import Socket
 
 context = Context()
 
-cfg_t = dict[str, str | int]
+cfg_t = dict[str, Union[str, int]]
 
 channel_socket_types = {
     "shell": zmq.ROUTER,
