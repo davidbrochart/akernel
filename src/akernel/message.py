@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+import json
 import uuid
 import hmac
 import hashlib
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from zmq.utils import jsonapi
-from zmq_anyio import Socket
 from dateutil.parser import parse as dateutil_parse  # type: ignore
 
 
@@ -97,24 +96,30 @@ def serialize(msg: dict[str, Any], key: str) -> list[bytes]:
     return to_send
 
 
-async def receive_message(sock: Socket) -> tuple[list[bytes], dict[str, Any]] | None:
-    return await sock.arecv_multipart().wait()
-    return None
+def dumps(o: Any, **kwargs) -> bytes:
+    """Serialize object to JSON bytes (utf-8).
+
+    Keyword arguments are passed along to :py:func:`json.dumps`.
+    """
+    return json.dumps(o, **kwargs).encode("utf8")
 
 
-async def send_message(
-    msg: dict[str, Any],
-    sock: Socket,
-) -> None:
-    await sock.asend_multipart(msg, copy=True).wait()
+def loads(s: bytes | str, **kwargs) -> dict | list | str | int | float:
+    """Load object from JSON bytes (utf-8).
+
+    Keyword arguments are passed along to :py:func:`json.loads`.
+    """
+    if isinstance(s, bytes):
+        s = s.decode("utf8")
+    return json.loads(s, **kwargs)
 
 
 def pack(obj: dict[str, Any]) -> bytes:
-    return jsonapi.dumps(obj)
+    return dumps(obj)
 
 
 def unpack(s: bytes) -> dict[str, Any]:
-    return cast(dict[str, Any], jsonapi.loads(s))
+    return cast(dict[str, Any], loads(s))
 
 
 def sign(msg_list: list[bytes], key: str) -> bytes:
