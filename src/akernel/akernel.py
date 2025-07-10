@@ -9,7 +9,6 @@ from anyio import create_memory_object_stream, create_task_group, run, sleep_for
 from .connect import connect_channel
 from .kernel import Kernel
 from .kernelspec import write_kernelspec
-from .message import receive_message, send_message
 
 
 cli = typer.Typer()
@@ -106,34 +105,34 @@ class AKernel:
 
     async def to_shell(self) -> None:
         while True:
-            msg = await receive_message(self.shell_channel)
+            msg = await self.shell_channel.arecv_multipart().wait()
             await self._to_shell_send_stream.send(msg)
 
     async def from_shell(self) -> None:
         async for msg in self._from_shell_receive_stream:
-            await send_message(msg, self.shell_channel)
+            await self.shell_channel.asend_multipart(msg, copy=True).wait()
 
     async def to_control(self) -> None:
         while True:
-            msg = await receive_message(self.control_channel)
+            msg = await self.control_channel.arecv_multipart().wait()
             await self._to_control_send_stream.send(msg)
 
     async def from_control(self) -> None:
         async for msg in self._from_control_receive_stream:
-            await send_message(msg, self.control_channel)
+            await self.control_channel.asend_multipart(msg, copy=True).wait()
 
     async def to_stdin(self) -> None:
         while True:
-            msg = await receive_message(self.stdin_channel)
+            msg = await self.stdin_channel.arecv_multipart().wait()
             await self._to_stdin_send_stream.send(msg)
 
     async def from_stdin(self) -> None:
         async for msg in self._from_stdin_receive_stream:
-            await send_message(msg, self.stdin_channel)
+            await self.stdin_channel.asend_multipart(msg, copy=True).wait()
 
     async def from_iopub(self) -> None:
         async for msg in self._from_iopub_receive_stream:
-            await send_message(msg, self.iopub_channel)
+            await self.iopub_channel.asend_multipart(msg, copy=True).wait()
 
 
 if __name__ == "__main__":

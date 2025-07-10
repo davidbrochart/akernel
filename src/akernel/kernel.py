@@ -14,7 +14,6 @@ from akernel.comm.manager import CommManager
 from akernel.display import display
 import akernel.IPython
 from akernel.IPython import core
-from .connect import connect_channel
 from .message import create_message, feed_identities, deserialize, serialize
 from .execution import pre_execute, cache_execution
 from .traceback import get_traceback
