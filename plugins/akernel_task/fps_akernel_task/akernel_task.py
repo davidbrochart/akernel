@@ -13,7 +13,6 @@ class AKernelTask(_Kernel):
 
     async def start(self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED) -> None:
         async with (
-            create_task_group() as self.task_group,
             self._to_shell_send_stream,
             self._to_shell_receive_stream,
             self._from_shell_send_stream,
@@ -28,6 +27,7 @@ class AKernelTask(_Kernel):
             self._from_stdin_receive_stream,
             self._from_iopub_send_stream,
             self._from_iopub_receive_stream,
+            create_task_group() as self.task_group,
         ):
             self.kernel = Kernel(
                 self._to_shell_receive_stream,
