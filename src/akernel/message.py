@@ -28,7 +28,7 @@ def utcnow() -> datetime:
 
 def feed_identities(msg_list: list[bytes]) -> tuple[list[bytes], list[bytes]]:
     idx = msg_list.index(DELIM)
-    idents = msg_list[:idx] or ["foo"]
+    idents = msg_list[:idx] or [b"foo"]
     return idents , msg_list[idx + 1 :]  # noqa
 
 
