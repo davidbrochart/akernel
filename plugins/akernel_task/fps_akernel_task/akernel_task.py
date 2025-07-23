@@ -40,6 +40,7 @@ class AKernelTask(_Kernel):
             )
             self.task_group.start_soon(self.kernel.start)
             task_status.started()
+            self.started.set()
             await sleep_forever()
 
     async def stop(self) -> None:
