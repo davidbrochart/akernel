@@ -7,7 +7,16 @@ from io import StringIO
 from contextvars import ContextVar
 from typing import Dict, Any, List, Awaitable
 
-from anyio import Event, create_memory_object_stream, create_task_group, from_thread, get_cancelled_exc_class, run, sleep, to_thread
+from anyio import (
+    Event,
+    create_memory_object_stream,
+    create_task_group,
+    from_thread,
+    get_cancelled_exc_class,
+    run,
+    sleep,
+    to_thread,
+)
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -103,6 +112,7 @@ class Kernel:
         self.stop_event = Event()
         if execute_in_thread:
             import threading
+
             self._stop_event = threading.Event()
         self.key = "0"
 
@@ -191,7 +201,9 @@ class Kernel:
                 return
             except Exception:
                 exc_type, exception, traceback = sys.exc_info()
-            from_thread.run_sync(self.from_thread_send_stream.send_nowait, (result, exception, traceback))
+            from_thread.run_sync(
+                self.from_thread_send_stream.send_nowait, (result, exception, traceback)
+            )
 
     async def thread_main(self) -> None:
         async with create_task_group() as tg:
@@ -206,8 +218,11 @@ class Kernel:
         async with create_task_group() as self.task_group:
             if self.execute_in_thread:
                 from queue import Queue
+
                 self.to_thread_queue = Queue()
-                self.from_thread_send_stream, self.from_thread_receive_stream = create_memory_object_stream(max_buffer_size=1)
+                self.from_thread_send_stream, self.from_thread_receive_stream = (
+                    create_memory_object_stream(max_buffer_size=1)
+                )
                 self.task_group.start_soon(to_thread.run_sync, self.thread)
             msg = self.create_message("status", content={"execution_state": self.execution_state})
             to_send = serialize(msg, self.key)
@@ -250,7 +265,10 @@ class Kernel:
             # if there was a blocking cell execution, and it was interrupted,
             # let's ignore all the following execution requests until the pipe
             # is empty
-            if self.interrupted and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0:
+            if (
+                self.interrupted
+                and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0
+            ):
                 self.interrupted = False
             msg_list = await self.to_shell_receive_stream.receive()
             idents, msg_list = feed_identities(msg_list)
@@ -421,7 +439,9 @@ class Kernel:
         namespace = self.get_namespace(parent_header)
         try:
             if self.execute_in_thread:
-                self.to_thread_queue.put((parent, idents, self.locals[namespace][f"__async_cell{task_i}__"]))
+                self.to_thread_queue.put(
+                    (parent, idents, self.locals[namespace][f"__async_cell{task_i}__"])
+                )
                 result, exception, traceback = await self.from_thread_receive_stream.receive()
             else:
                 PARENT_VAR.set(parent)

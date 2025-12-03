@@ -17,10 +17,14 @@ class AKernelTaskModule(Module):
 
     async def prepare(self) -> None:
         kernels = await self.get(Kernels)
-        kernels.register_kernel_factory("akernel", KernelFactory(partial(AKernelTask, execute_in_thread=self.execute_in_thread)))
+        kernels.register_kernel_factory(
+            "akernel", KernelFactory(partial(AKernelTask, execute_in_thread=self.execute_in_thread))
+        )
 
 
 class AKernelThreadTaskModule(Module):
     async def prepare(self) -> None:
         kernels = await self.get(Kernels)
-        kernels.register_kernel_factory("akernel-thread", KernelFactory(partial(AKernelTask, execute_in_thread=True)))
+        kernels.register_kernel_factory(
+            "akernel-thread", KernelFactory(partial(AKernelTask, execute_in_thread=True))
+        )

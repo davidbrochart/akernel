@@ -151,7 +151,7 @@ class Transform:
 
     def get_async_bytecode(self) -> CodeType:
         tree = self.get_async_ast()
-        #tree = gast.gast_to_ast(gtree)
+        # tree = gast.gast_to_ast(gtree)
         bytecode = compile(tree, filename="<string>", mode="exec")
         return bytecode
 

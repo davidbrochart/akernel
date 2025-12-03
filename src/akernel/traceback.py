@@ -10,8 +10,8 @@ from colorama import Fore, Style  # type: ignore
 def get_traceback(code: str, exception, traceback, execution_count: int = 0):
     tb_list = extract_tb(traceback)
     tb = format_list(tb_list)
-    #tb += [f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}"]
-    #return tb
+    # tb += [f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}"]
+    # return tb
 
     tb = cast(types.TracebackType, traceback)
     while True:

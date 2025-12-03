@@ -56,13 +56,27 @@ def launch(
 
 class AKernel:
     def __init__(self, mode, cache_dir, connection_file, execute_in_thread):
-        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_control_send_stream, self._from_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[list[bytes]](max_buffer_size=float("inf"))
+        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_control_send_stream, self._from_control_receive_stream = (
+            create_memory_object_stream[list[bytes]]()
+        )
+        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ](max_buffer_size=float("inf"))
         self.kernel = Kernel(
             self._to_shell_receive_stream,
             self._from_shell_send_stream,
