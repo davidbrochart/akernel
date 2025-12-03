@@ -8,8 +8,9 @@ from akernel.kernel import Kernel
 
 
 class AKernelTask(_Kernel):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, execute_in_thread: bool = False, **kwargs):
         super().__init__()
+        self.execute_in_thread = execute_in_thread
 
     async def start(self, *, task_status: TaskStatus[None] = TASK_STATUS_IGNORED) -> None:
         async with (
@@ -37,6 +38,7 @@ class AKernelTask(_Kernel):
                 self._to_stdin_receive_stream,
                 self._from_stdin_send_stream,
                 self._from_iopub_send_stream,
+                execute_in_thread=self.execute_in_thread,
             )
             self.task_group.start_soon(self.kernel.start)
             task_status.started()

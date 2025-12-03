@@ -29,5 +29,5 @@ text = "MIT"
 Homepage = "https://github.com/davidbrochart/akernel"
 
 [project.entry-points]
-"fps.modules"       = {akernel_task = "fps_akernel_task.main:AKernelTaskModule"}
-"jupyverse.modules" = {akernel_task = "fps_akernel_task.main:AKernelTaskModule"}
+"fps.modules"       = {akernel_task = "fps_akernel_task.main:AKernelTaskModule", akernelthread_task = "fps_akernel_task.main:AKernelThreadTaskModule"}
+"jupyverse.modules" = {akernel_task = "fps_akernel_task.main:AKernelTaskModule", akernelthread_task = "fps_akernel_task.main:AKernelThreadTaskModule"}
