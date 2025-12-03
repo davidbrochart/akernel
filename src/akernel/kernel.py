@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import platform
 import sys
 from io import StringIO
 from contextvars import ContextVar
-from typing import Dict, Any, List, Union, Awaitable, cast
+from typing import Dict, Any, List, Awaitable
 
-from anyio import Event, WouldBlock, create_memory_object_stream, create_task_group, from_thread, get_cancelled_exc_class, run, sleep, to_thread
+from anyio import Event, create_memory_object_stream, create_task_group, from_thread, get_cancelled_exc_class, run, sleep, to_thread
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -190,7 +189,7 @@ class Kernel:
                 result = await async_cell()
             except get_cancelled_exc_class():
                 return
-            except Exception as exc:
+            except Exception:
                 exc_type, exception, traceback = sys.exc_info()
             from_thread.run_sync(self.from_thread_send_stream.send_nowait, (result, exception, traceback))
 
