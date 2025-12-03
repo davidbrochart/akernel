@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import sys
 import types
+from traceback import extract_tb, format_list
 from typing import cast
 
 from colorama import Fore, Style  # type: ignore
 
 
-def get_traceback(code: str, exception, execution_count: int = 0):
-    exc_info = sys.exc_info()
-    tb = cast(types.TracebackType, exc_info[2])
+def get_traceback(code: str, exception, traceback, execution_count: int = 0):
+    tb_list = extract_tb(traceback)
+    tb = format_list(tb_list)
+    # tb += [f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}"]
+    # return tb
+
+    tb = cast(types.TracebackType, traceback)
     while True:
         if tb.tb_next is None:
             break

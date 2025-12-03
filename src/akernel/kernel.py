@@ -1,14 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import platform
-import json
+import sys
 from io import StringIO
 from contextvars import ContextVar
-from typing import Dict, Any, List, Union, Awaitable, cast
+from typing import Dict, Any, List, Awaitable
 
-from anyio import Event, create_task_group, sleep
+from anyio import (
+    Event,
+    create_memory_object_stream,
+    create_task_group,
+    from_thread,
+    get_cancelled_exc_class,
+    run,
+    sleep,
+    to_thread,
+)
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -61,6 +69,7 @@ class Kernel:
         from_iopub_send_stream,
         kernel_mode: str = "",
         cache_dir: str | None = None,
+        execute_in_thread: bool = False,
     ):
         global KERNEL
         KERNEL = self
@@ -77,6 +86,7 @@ class Kernel:
 
         self.kernel_mode = kernel_mode
         self.cache_dir = cache_dir
+        self.execute_in_thread = execute_in_thread
         self._concurrent_kernel = None
         self._multi_kernel = None
         self._cache_kernel = None
@@ -100,6 +110,10 @@ class Kernel:
         else:
             self.cache = None
         self.stop_event = Event()
+        if execute_in_thread:
+            import threading
+
+            self._stop_event = threading.Event()
         self.key = "0"
 
     def chain_execution(self) -> None:
@@ -137,7 +151,6 @@ class Kernel:
             return
 
         self.globals[namespace] = {
-            "ainput": self.ainput,
             "asyncio": asyncio,
             "print": self.print,
             "__task__": self.task,
@@ -145,6 +158,10 @@ class Kernel:
             "__unchain_execution__": self.unchain_execution,
             "_": None,
         }
+        if self.execute_in_thread:
+            self.globals[namespace]["input"] = self.input
+        else:
+            self.globals[namespace]["ainput"] = self.ainput
         self.locals[namespace] = {}
         if self.react_kernel:
             code = (
@@ -166,8 +183,47 @@ class Kernel:
             task.cancel()
         self.running_cells = {}
 
+    async def thread_execute(self):
+        while True:
+            message = await to_thread.run_sync(self.to_thread_queue.get)
+            if message is None:
+                return
+
+            parent, idents, async_cell = message
+            PARENT_VAR.set(parent)
+            IDENTS_VAR.set(idents)
+            result = None
+            exception = None
+            traceback = None
+            try:
+                result = await async_cell()
+            except get_cancelled_exc_class():
+                return
+            except Exception:
+                exc_type, exception, traceback = sys.exc_info()
+            from_thread.run_sync(
+                self.from_thread_send_stream.send_nowait, (result, exception, traceback)
+            )
+
+    async def thread_main(self) -> None:
+        async with create_task_group() as tg:
+            tg.start_soon(self.thread_execute)
+            await to_thread.run_sync(self._stop_event.wait)
+            tg.cancel_scope.cancel()
+
+    def thread(self) -> None:
+        run(self.thread_main)
+
     async def start(self) -> None:
         async with create_task_group() as self.task_group:
+            if self.execute_in_thread:
+                from queue import Queue
+
+                self.to_thread_queue = Queue()
+                self.from_thread_send_stream, self.from_thread_receive_stream = (
+                    create_memory_object_stream(max_buffer_size=1)
+                )
+                self.task_group.start_soon(to_thread.run_sync, self.thread)
             msg = self.create_message("status", content={"execution_state": self.execution_state})
             to_send = serialize(msg, self.key)
             await self.from_iopub_send_stream.send(to_send)
@@ -186,15 +242,21 @@ class Kernel:
     async def _start(self) -> None:
         self.task_group.start_soon(self.listen_shell)
         self.task_group.start_soon(self.listen_control)
-        while True:
-            # run until shutdown request
-            await self.stop_event.wait()
-            if self.restart:
-                # kernel restart
-                self.stop_event = Event()
-            else:
-                # kernel shutdown
-                break
+        try:
+            while True:
+                # run until shutdown request
+                await self.stop_event.wait()
+                if self.restart:
+                    # kernel restart
+                    self.stop_event = Event()
+                else:
+                    # kernel shutdown
+                    break
+        except get_cancelled_exc_class():
+            if self.execute_in_thread:
+                self._stop_event.set()
+                self.to_thread_queue.put(None)
+            raise
 
     async def listen_shell(self) -> None:
         while True:
@@ -203,7 +265,10 @@ class Kernel:
             # if there was a blocking cell execution, and it was interrupted,
             # let's ignore all the following execution requests until the pipe
             # is empty
-            if self.interrupted and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0:
+            if (
+                self.interrupted
+                and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0
+            ):
                 self.interrupted = False
             msg_list = await self.to_shell_receive_stream.receive()
             idents, msg_list = feed_identities(msg_list)
@@ -369,21 +434,37 @@ class Kernel:
         if self._chain_execution and prev_task_i in self.cell_done:
             await self.cell_done[prev_task_i].wait()
             del self.cell_done[prev_task_i]
-        PARENT_VAR.set(parent)
-        IDENTS_VAR.set(idents)
         parent_header = parent["header"]
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
         try:
-            result = await self.locals[namespace][f"__async_cell{task_i}__"]()
+            if self.execute_in_thread:
+                self.to_thread_queue.put(
+                    (parent, idents, self.locals[namespace][f"__async_cell{task_i}__"])
+                )
+                result, exception, traceback = await self.from_thread_receive_stream.receive()
+            else:
+                PARENT_VAR.set(parent)
+                IDENTS_VAR.set(idents)
+                result = await self.locals[namespace][f"__async_cell{task_i}__"]()
         except KeyboardInterrupt:
             self.interrupt()
-        except Exception as e:
-            exception = e
-            traceback = get_traceback(code, e, execution_count)
+        except Exception:
+            if self.execute_in_thread:
+                raise
+            else:
+                exc_type, exception, traceback = sys.exc_info()
+                traceback = get_traceback(code, exception, traceback, execution_count)
         else:
-            await self.show_result(result, self.globals[namespace], parent_header)
-            cache_execution(self.cache, cache_info, self.globals[namespace], result)
+            if self.execute_in_thread:
+                if exception is not None:
+                    traceback = get_traceback(code, exception, traceback, execution_count)
+                else:
+                    await self.show_result(result, self.globals[namespace], parent_header)
+                    cache_execution(self.cache, cache_info, self.globals[namespace], result)
+            else:
+                await self.show_result(result, self.globals[namespace], parent_header)
+                cache_execution(self.cache, cache_info, self.globals[namespace], result)
         finally:
             self.cell_done[task_i].set()
             del self.locals[namespace][f"__async_cell{task_i}__"]
@@ -455,6 +536,24 @@ class Kernel:
             return self.running_cells[i]
         return asyncio.sleep(0)
 
+    def input(self, prompt: str = "") -> Any:
+        parent = PARENT_VAR.get()
+        idents = IDENTS_VAR.get()
+        if parent["content"]["allow_stdin"]:
+            msg = self.create_message(
+                "input_request",
+                parent_header=parent["header"],
+                content={"prompt": prompt, "password": False},
+                address=idents[0],
+            )
+            to_send = serialize(msg, self.key)
+            from_thread.run_sync(self.from_stdin_send_stream.send_nowait, to_send)
+            msg_list = from_thread.run(self.to_stdin_receive_stream.receive)
+            idents, msg_list = feed_identities(msg_list)
+            msg = deserialize(msg_list)
+            if msg["content"]["status"] == "ok":
+                return msg["content"]["value"]
+
     async def ainput(self, prompt: str = "") -> Any:
         parent = PARENT_VAR.get()
         idents = IDENTS_VAR.get()
@@ -466,11 +565,10 @@ class Kernel:
                 address=idents[0],
             )
             to_send = serialize(msg, self.key)
-            await self.from_stdin_send_stream.send(to_send)
+            self.from_stdin_send_stream.send_nowait(to_send)
             msg_list = await self.to_stdin_receive_stream.receive()
             idents, msg_list = feed_identities(msg_list)
             msg = deserialize(msg_list)
-            idents, msg = res
             if msg["content"]["status"] == "ok":
                 return msg["content"]["value"]
 
@@ -499,7 +597,10 @@ class Kernel:
             content={"name": name, "text": text},
         )
         to_send = serialize(msg, self.key)
-        self.from_iopub_send_stream.send_nowait(to_send)
+        if self.execute_in_thread:
+            from_thread.run_sync(self.from_iopub_send_stream.send_nowait, to_send)
+        else:
+            self.from_iopub_send_stream.send_nowait(to_send)
 
     def create_message(
         self,
