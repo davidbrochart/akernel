@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import pickle
+import sys
 from typing import List, Dict, Tuple, Any
 
 from colorama import Fore, Style  # type: ignore
@@ -27,8 +28,8 @@ def pre_execute(
         transform = Transform(code, task_i, react)
         async_bytecode = transform.get_async_bytecode()
         exec(async_bytecode, globals_, locals_)
-    except SyntaxError as e:
-        exception = e
+    except SyntaxError as exc:
+        exception = exc
         filename = exception.filename
         if filename == "<unknown>":
             filename = f"{Fore.CYAN}Cell{Style.RESET_ALL} {Fore.GREEN}{execution_count}"
@@ -151,9 +152,11 @@ async def execute(
         try:
             result = await locals_["__async_cell__"]()
         except KeyboardInterrupt:
+            with open("log.txt", "a") as f: f.write(f"interrupt\n")
             interrupted = True
-        except Exception as e:
-            traceback = get_traceback(code, e)
+        except Exception:
+            exc_type, exception, traceback = sys.exc_info()
+            traceback = get_traceback(code, exception, traceback)
         else:
             cache_execution(cache, cache_info, globals_, result)
 

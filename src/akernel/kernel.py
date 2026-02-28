@@ -1,7 +1,5 @@
-from __future__ import annotations
-
-import asyncio
 import platform
+import signal
 import sys
 from io import StringIO
 from contextvars import ContextVar
@@ -13,10 +11,12 @@ from anyio import (
     create_task_group,
     from_thread,
     get_cancelled_exc_class,
+    open_signal_receiver,
     run,
     sleep,
     to_thread,
 )
+from anyioutils import Task, create_task
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -46,7 +46,7 @@ class Kernel:
     comm_manager: CommManager
     kernel_mode: str
     cell_done: Dict[int, Event]
-    running_cells: Dict[int, asyncio.Task]
+    running_cells: Dict[int, Task]
     task_i: int
     execution_count: int
     execution_state: str
@@ -151,7 +151,6 @@ class Kernel:
             return
 
         self.globals[namespace] = {
-            "asyncio": asyncio,
             "print": self.print,
             "__task__": self.task,
             "__chain_execution__": self.chain_execution,
@@ -214,8 +213,16 @@ class Kernel:
     def thread(self) -> None:
         run(self.thread_main)
 
+    async def signal_handler(self):
+        with open_signal_receiver(signal.SIGINT) as signals:
+            async for signum in signals:
+                if signum == signal.SIGINT:
+                    self.interrupt()
+                    with open("log.txt", "a") as f: f.write("interrupt\n")
+
     async def start(self) -> None:
         async with create_task_group() as self.task_group:
+            self.task_group.start_soon(self.signal_handler)
             if self.execute_in_thread:
                 from queue import Queue
 
@@ -352,7 +359,7 @@ class Kernel:
                         exception=exception,
                     )
                 else:
-                    task = asyncio.create_task(
+                    task = create_task(
                         self.execute_and_finish(
                             idents,
                             parent,
@@ -360,9 +367,10 @@ class Kernel:
                             self.execution_count,
                             code,
                             cache_info,
-                        )
+                        ),
+                        self.task_group,
                     )
-                    self.cell_done[self.task_i] = asyncio.Event()
+                    self.cell_done[self.task_i] = Event()
                     self.running_cells[self.task_i] = task
                     self.task_i += 1
                     self.execution_count += 1
@@ -438,6 +446,7 @@ class Kernel:
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
         try:
+            with open("log.txt", "a") as f: f.write("execute\n")
             if self.execute_in_thread:
                 self.to_thread_queue.put(
                     (parent, idents, self.locals[namespace][f"__async_cell{task_i}__"])
@@ -448,8 +457,10 @@ class Kernel:
                 IDENTS_VAR.set(idents)
                 result = await self.locals[namespace][f"__async_cell{task_i}__"]()
         except KeyboardInterrupt:
+            with open("log.txt", "a") as f: f.write("interrupt\n")
             self.interrupt()
         except Exception:
+            with open("log.txt", "a") as f: f.write("interrupt\n")
             if self.execute_in_thread:
                 raise
             else:
@@ -533,8 +544,8 @@ class Kernel:
         else:
             i = cell_i
         if i in self.running_cells:
-            return self.running_cells[i]
-        return asyncio.sleep(0)
+            return self.running_cells[i].wait()
+        return sleep(0)
 
     def input(self, prompt: str = "") -> Any:
         parent = PARENT_VAR.get()

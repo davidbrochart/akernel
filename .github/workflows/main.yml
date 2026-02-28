@@ -33,7 +33,7 @@ jobs:
 
     - name: Install akernel
       run: |
-        pip install . --group test
+        pip install . --group dev
 
     - name: Check style and types
       run: |

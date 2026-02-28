@@ -23,6 +23,8 @@ classifiers = [
 ]
 keywords = [ "jupyter" ]
 dependencies = [
+    "anyio >=4.12.0,<5.0.0",
+    "anyioutils >=0.7.4,<0.8.0",
     "python-dateutil",
     "colorama",
     "gast >=0.6.0, <0.7.0",
@@ -30,11 +32,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-test = [
+dev = [
+    "trio",
     "mypy",
     "ruff",
     "pytest",
-    "pytest-asyncio",
     "pytest-rerunfailures",
     "types-python-dateutil",
     "kernel_driver >=0.0.7",
@@ -76,3 +78,6 @@ exclude = ["examples"]
 
 [tool.uv.sources]
 fps-akernel-task = { workspace = true }
+
+[tool.pytest.ini_options]
+anyio_mode = "auto"
