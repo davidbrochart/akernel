@@ -149,10 +149,10 @@ class Transform:
         gtree = self.get_async_ast()
         return ast.unparse(gtree)
 
-    def get_async_bytecode(self) -> CodeType:
+    def get_async_bytecode(self, task_i: int) -> CodeType:
         tree = self.get_async_ast()
         #tree = gast.gast_to_ast(gtree)
-        bytecode = compile(tree, filename="<string>", mode="exec")
+        bytecode = compile(tree, filename=f"<cell-{task_i}>", mode="exec")
         return bytecode
 
     def make_react(self):
