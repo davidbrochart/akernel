@@ -47,7 +47,7 @@ dev = [
 [project.optional-dependencies]
 subprocess = [
     "zmq-anyio >=0.3.13,<0.4.0",
-    "cyclopts >=4.3.0,<5.0.0",
+    "cyclopts >=4.22.2,<5.0.0",
 ]
 
 react = [

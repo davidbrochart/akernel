@@ -47,6 +47,7 @@ class Kernel:
     kernel_mode: str
     cell_done: Dict[int, Event]
     running_cells: Dict[int, Task]
+    _source_map: Dict[str, str]
     task_i: int
     execution_count: int
     execution_state: str
@@ -95,6 +96,7 @@ class Kernel:
         self.globals = {}
         self.locals = {}
         self._chain_execution = not self.concurrent_kernel
+        self._source_map = {}
         self.cell_done = {}
         self.running_cells = {}
         self.task_i = 0
@@ -445,6 +447,7 @@ class Kernel:
         parent_header = parent["header"]
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
+        self._source_map[f"<cell-{task_i}>"] = code
         try:
             with open("log.txt", "a") as f: f.write("execute\n")
             if self.execute_in_thread:
@@ -465,7 +468,7 @@ class Kernel:
                 raise
             else:
                 exc_type, exception, traceback = sys.exc_info()
-                traceback = get_traceback(code, exception, traceback, execution_count)
+                traceback = get_traceback(code, exception, traceback, execution_count, self._source_map)
         else:
             if self.execute_in_thread:
                 if exception is not None:
