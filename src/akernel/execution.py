@@ -25,7 +25,7 @@ def pre_execute(
 
     try:
         transform = Transform(code, task_i, react)
-        async_bytecode = transform.get_async_bytecode()
+        async_bytecode = transform.get_async_bytecode(task_i)
         exec(async_bytecode, globals_, locals_)
     except SyntaxError as e:
         exception = e

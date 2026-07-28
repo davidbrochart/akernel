@@ -39,6 +39,7 @@ class Kernel:
     kernel_mode: str
     cell_done: Dict[int, Event]
     running_cells: Dict[int, asyncio.Task]
+    _source_map: Dict[str, str]
     task_i: int
     execution_count: int
     execution_state: str
@@ -85,6 +86,7 @@ class Kernel:
         self.globals = {}
         self.locals = {}
         self._chain_execution = not self.concurrent_kernel
+        self._source_map = {}
         self.cell_done = {}
         self.running_cells = {}
         self.task_i = 0
@@ -374,13 +376,14 @@ class Kernel:
         parent_header = parent["header"]
         traceback, exception = [], None
         namespace = self.get_namespace(parent_header)
+        self._source_map[f"<cell-{task_i}>"] = code
         try:
             result = await self.locals[namespace][f"__async_cell{task_i}__"]()
         except KeyboardInterrupt:
             self.interrupt()
         except Exception as e:
             exception = e
-            traceback = get_traceback(code, e, execution_count)
+            traceback = get_traceback(code, e, execution_count, self._source_map)
         else:
             await self.show_result(result, self.globals[namespace], parent_header)
             cache_execution(self.cache, cache_info, self.globals[namespace], result)
