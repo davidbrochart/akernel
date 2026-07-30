@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Awaitable
 
 from anyio import (
     Event,
+    TaskHandle,
     create_memory_object_stream,
     create_task_group,
     from_thread,
@@ -16,7 +17,6 @@ from anyio import (
     sleep,
     to_thread,
 )
-from anyioutils import Task, create_task
 import comm  # type: ignore
 from akernel.comm.manager import CommManager
 from akernel.display import display
@@ -46,7 +46,7 @@ class Kernel:
     comm_manager: CommManager
     kernel_mode: str
     cell_done: Dict[int, Event]
-    running_cells: Dict[int, Task]
+    running_cells: Dict[int, TaskHandle]
     _source_map: Dict[str, str]
     task_i: int
     execution_count: int
@@ -361,7 +361,7 @@ class Kernel:
                         exception=exception,
                     )
                 else:
-                    task = create_task(
+                    task = self.task_group.create_task(
                         self.execute_and_finish(
                             idents,
                             parent,
@@ -369,8 +369,7 @@ class Kernel:
                             self.execution_count,
                             code,
                             cache_info,
-                        ),
-                        self.task_group,
+                        )
                     )
                     self.cell_done[self.task_i] = Event()
                     self.running_cells[self.task_i] = task

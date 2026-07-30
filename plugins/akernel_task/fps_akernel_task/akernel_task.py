@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from anyio import TASK_STATUS_IGNORED, create_task_group, sleep_forever
 from anyio.abc import TaskStatus
-from jupyverse_api.kernel import Kernel as _Kernel
+from jupyverse_kernel import Kernel as _Kernel
 
 from akernel.kernel import Kernel
 
