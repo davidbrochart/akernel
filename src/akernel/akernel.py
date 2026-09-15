@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, cast
+from typing import Annotated, cast
 
-import typer
 from anyio import Event, create_memory_object_stream, create_task_group, run
+from cyclopts import App, Parameter
 
 from .connect import connect_channel
 from .kernel import Kernel
@@ -12,16 +12,20 @@ from .kernelspec import write_kernelspec
 from .message import deserialize, feed_identities
 
 
-cli = typer.Typer()
+app = App()
 
 
-@cli.command()
+@app.command()
 def install(
-    mode: str = typer.Argument("", help="Mode of the kernel to install."),
-    cache_dir: Optional[str] = typer.Option(
-        None, "-c", help="Path to the cache directory, if mode is 'cache'."
-    ),
-):
+    mode: str = "",
+    cache_dir: str | None = None,
+) -> None:
+    """Install the kernel.
+
+    Args:
+        mode: Mode of the kernel to install.
+        cache_dir: Path to the cache directory, if mode is 'cache'.
+    """
     kernel_name = "akernel"
     if mode:
         modes = mode.split("-")
@@ -32,28 +36,49 @@ def install(
     write_kernelspec(kernel_name, mode, display_name, cache_dir)
 
 
-@cli.command()
+@app.command()
 def launch(
-    mode: str = typer.Argument("", help="Mode of the kernel to launch."),
-    cache_dir: Optional[str] = typer.Option(
-        None, "-c", help="Path to the cache directory, if mode is 'cache'."
-    ),
-    connection_file: str = typer.Option(..., "-f", help="Path to the connection file."),
+    connection_file: Annotated[str, Parameter(alias=["-f"])],
+    mode: str = "",
+    cache_dir: str | None = None,
+    execute_in_thread: bool = False,
 ):
-    akernel = AKernel(mode, cache_dir, connection_file)
+    """Launch the kernel.
+
+    Args:
+        mode: Mode of the kernel to launch.
+        cache_dir: Path to the cache directory, if mode is 'cache'.
+        connection_file: Path to the connection file.
+        execute_in_thread: Whether to run user code in a thread.
+    """
+    akernel = AKernel(mode, cache_dir, connection_file, execute_in_thread)
     run(akernel.start)
 
 
 class AKernel:
-    def __init__(self, mode, cache_dir, connection_file):
+    def __init__(self, mode, cache_dir, connection_file, execute_in_thread):
         self._shutdown_reply_sent = Event()
-        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_control_send_stream, self._from_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[list[bytes]](max_buffer_size=float("inf"))
+        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_control_send_stream, self._from_control_receive_stream = (
+            create_memory_object_stream[list[bytes]]()
+        )
+        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ](max_buffer_size=float("inf"))
         self.kernel = Kernel(
             self._to_shell_receive_stream,
             self._from_shell_send_stream,
@@ -64,6 +89,7 @@ class AKernel:
             self._from_iopub_send_stream,
             mode,
             cache_dir,
+            execute_in_thread,
         )
         with open(connection_file) as f:
             connection_cfg = json.load(f)
@@ -144,4 +170,4 @@ class AKernel:
 
 
 if __name__ == "__main__":
-    cli()
+    app()

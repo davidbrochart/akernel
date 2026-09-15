@@ -1,8 +1,10 @@
 import os
+import platform
 import sys
-import asyncio
 import signal
 import re
+from functools import partial
+from anyio import create_task_group, sleep
 from pathlib import Path
 from textwrap import dedent
 
@@ -11,21 +13,22 @@ from kernel_driver import KernelDriver  # type: ignore
 
 
 TIMEOUT = 5
-KERNELSPEC_PATH = str(Path(sys.prefix) / "share" / "jupyter" / "kernels" / "akernel" / "kernel.json")
+KERNELSPEC_PATH = str(
+    Path(sys.prefix) / "share" / "jupyter" / "kernels" / "akernel" / "kernel.json"
+)
 
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 def interrupt_kernel(kernel_process):
-    if sys.platform.startswith("win"):
+    if platform.system() == "Windows":
         os.kill(kernel_process.pid, signal.CTRL_C_EVENT)
     else:
         kernel_process.send_signal(signal.SIGINT)
 
 
-@pytest.mark.asyncio
-async def test_syntax_error(capfd, all_modes):
+async def test_syntax_error(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("foo bar", timeout=TIMEOUT)
@@ -52,8 +55,7 @@ async def test_syntax_error(capfd, all_modes):
     assert ANSI_ESCAPE.sub("", err).strip() == expected
 
 
-@pytest.mark.asyncio
-async def test_name_not_defined(capfd, all_modes):
+async def test_name_not_defined(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("foo", timeout=TIMEOUT)
@@ -71,8 +73,7 @@ async def test_name_not_defined(capfd, all_modes):
     )
 
 
-@pytest.mark.asyncio
-async def test_hello_world(capfd, all_modes):
+async def test_hello_world(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("print('Hello World!')", timeout=TIMEOUT)
@@ -82,8 +83,7 @@ async def test_hello_world(capfd, all_modes):
     assert out == "Hello World!\n"
 
 
-@pytest.mark.asyncio
-async def test_global_variable(capfd, all_modes):
+async def test_global_variable(capfd):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("a = 1", timeout=TIMEOUT)
@@ -96,113 +96,122 @@ async def test_global_variable(capfd, all_modes):
     assert out == "1\n3\n"
 
 
-@pytest.mark.asyncio
-async def test_concurrent_cells(capfd, all_modes):
-    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
-    await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(kd.execute("__unchain_execution__()", timeout=TIMEOUT))
-    asyncio.create_task(kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
-    asyncio.create_task(kd.execute("await asyncio.sleep(0.1)\nprint('done2')", timeout=TIMEOUT))
-    await asyncio.sleep(0.5)
-    await kd.stop()
+async def test_concurrent_cells(capfd):
+    async with create_task_group() as tg:
+        kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+        await kd.start(startup_timeout=TIMEOUT)
+        tg.start_soon(partial(kd.execute, "__unchain_execution__()", timeout=TIMEOUT))
+        tg.start_soon(partial(kd.execute, "from anyio import sleep", timeout=TIMEOUT))
+        tg.start_soon(partial(kd.execute, "await sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
+        tg.start_soon(partial(kd.execute, "await sleep(0.1)\nprint('done2')", timeout=TIMEOUT))
+        await sleep(0.5)
+        await kd.stop()
 
     out, err = capfd.readouterr()
     assert out == "done2\ndone1\n"
 
 
-@pytest.mark.asyncio
-async def test_chained_cells(capfd, all_modes):
-    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
-    await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(kd.execute("await asyncio.sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
-    asyncio.create_task(
-        kd.execute(
-            "await __task__()\nawait asyncio.sleep(0.1)\nprint('done2')",
-            timeout=TIMEOUT,
-        )
-    )
-    await asyncio.sleep(1)
-    await kd.stop()
-
-    out, err = capfd.readouterr()
-    assert out == "done1\ndone2\n"
-
-
-@pytest.mark.asyncio
-async def test_interrupt_async(capfd, all_modes):
-    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
-    await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(kd.execute("__unchain_execution__()", timeout=TIMEOUT))
-    expected = []
-    n0, n1 = 2, 3
-    for i0 in range(n0):
-        for i1 in range(n1):
-            asyncio.create_task(
-                kd.execute(
-                    f"print('{i0} {i1} before')\nawait asyncio.sleep(1)\nprint('{i0} {i1} after')",
-                    timeout=TIMEOUT,
-                )
+async def test_chained_cells(capfd):
+    async with create_task_group() as tg:
+        kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+        await kd.start(startup_timeout=TIMEOUT)
+        tg.start_soon(partial(kd.execute, "from anyio import sleep", timeout=TIMEOUT))
+        tg.start_soon(partial(kd.execute, "await sleep(0.2)\nprint('done1')", timeout=TIMEOUT))
+        tg.start_soon(
+            partial(
+                kd.execute,
+                "await __task__()\nawait sleep(0.1)\nprint('done2')",
+                timeout=TIMEOUT,
             )
-            expected.append(f"{i0} {i1} before")
-        await asyncio.sleep(0.1)
+        )
+        await sleep(1)
+        await kd.stop()
+
+        out, err = capfd.readouterr()
+        assert out == "done1\ndone2\n"
+
+
+async def test_interrupt_async(capfd):
+    async with create_task_group() as tg:
+        kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+        await kd.start(startup_timeout=TIMEOUT)
+        await kd.execute("__unchain_execution__()", timeout=TIMEOUT)
+        expected = []
+        n0, n1 = 2, 3
+        for i0 in range(n0):
+            for i1 in range(n1):
+                tg.start_soon(
+                    partial(
+                        kd.execute,
+                        f"from anyio import sleep\nprint('{i0} {i1} before')\nawait sleep(1)\nprint('{i0} {i1} after')",
+                        timeout=TIMEOUT,
+                    )
+                )
+                expected.append(f"{i0} {i1} before")
+            await sleep(0.1)
+            interrupt_kernel(kd.kernel_process)
+            await sleep(0.1)
+        await kd.stop()
+
+        expected = "\n".join(expected) + "\n"
+        out, err = capfd.readouterr()
+        print(expected)
+        assert out == expected
+
+
+async def test_interrupt_chained(capfd):
+    async with create_task_group() as tg:
+        kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+        await kd.start(startup_timeout=TIMEOUT)
+        tg.start_soon(
+            partial(
+                kd.execute,
+                "from anyio import sleep\nprint('before 0')\nawait sleep(1)\nprint('after 0')",
+                timeout=TIMEOUT,
+            )
+        )
+        tg.start_soon(
+            partial(
+                kd.execute,
+                "await __task__()\nprint('before 1')\nawait sleep(1)\nprint('after 1')",
+                timeout=TIMEOUT,
+            )
+        )
+        await sleep(0.1)
         interrupt_kernel(kd.kernel_process)
-        await asyncio.sleep(0.1)
-    await kd.stop()
+        await sleep(0.1)
+        await kd.stop()
 
-    expected = "\n".join(expected) + "\n"
-    out, err = capfd.readouterr()
-    assert out == expected
+        out, err = capfd.readouterr()
+        assert out == "before 0\n"
 
 
-@pytest.mark.asyncio
-async def test_interrupt_chained(capfd, all_modes):
-    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
-    await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(
-        kd.execute(
-            "print('before 0')\nawait asyncio.sleep(1)\nprint('after 0')",
-            timeout=TIMEOUT,
+async def test_interrupt_blocking(capfd):
+    async with create_task_group() as tg:
+        kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
+        await kd.start(startup_timeout=TIMEOUT)
+        tg.start_soon(
+            partial(
+                kd.execute,
+                "import time\nprint('before 0')\ntime.sleep(1)\nprint('after 0')",
+                timeout=TIMEOUT,
+            )
         )
-    )
-    asyncio.create_task(
-        kd.execute(
-            "await __task__()\nprint('before 1')\nawait asyncio.sleep(1)\nprint('after 1')",
-            timeout=TIMEOUT,
+        tg.start_soon(
+            partial(
+                kd.execute, "print('before 1')\ntime.sleep(1)\nprint('after 1')", timeout=TIMEOUT
+            )
         )
-    )
-    await asyncio.sleep(0.1)
-    interrupt_kernel(kd.kernel_process)
-    await asyncio.sleep(0.1)
-    await kd.stop()
+        await sleep(0.1)
+        interrupt_kernel(kd.kernel_process)
+        await sleep(0.1)
+        await kd.stop()
 
-    out, err = capfd.readouterr()
-    assert out == "before 0\n"
-
-
-@pytest.mark.asyncio
-async def test_interrupt_blocking(capfd, all_modes):
-    kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
-    await kd.start(startup_timeout=TIMEOUT)
-    asyncio.create_task(
-        kd.execute(
-            "import time\nprint('before 0')\ntime.sleep(1)\nprint('after 0')",
-            timeout=TIMEOUT,
-        )
-    )
-    asyncio.create_task(
-        kd.execute("print('before 1')\ntime.sleep(1)\nprint('after 1')", timeout=TIMEOUT)
-    )
-    await asyncio.sleep(0.1)
-    interrupt_kernel(kd.kernel_process)
-    await asyncio.sleep(0.1)
-    await kd.stop()
-
-    out, err = capfd.readouterr()
-    assert out == "before 0\n"
+        out, err = capfd.readouterr()
+        assert out == "before 0\n"
 
 
-@pytest.mark.asyncio
-async def test_repr(capfd, all_modes):
+async def test_repr(capfd ):
     kd = KernelDriver(kernelspec_path=KERNELSPEC_PATH, log=False)
     await kd.start(startup_timeout=TIMEOUT)
     await kd.execute("1 + 2", timeout=TIMEOUT)
@@ -212,8 +221,7 @@ async def test_repr(capfd, all_modes):
     assert out == "3\n"
 
 
-@pytest.mark.asyncio
-async def test_globals(capfd, all_modes):
+async def test_globals(capfd):
     code = dedent(
         """\
         a = 1

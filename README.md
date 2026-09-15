@@ -65,9 +65,11 @@ cell with the following code:
 
 ```python
 # cell 1
+from anyio import sleep
+
 for i in range(10):
     print("cell 1:", i)
-    await asyncio.sleep(1)
+    await sleep(1)
 ```
 
 Since this cell is `async` (it has an `await`), it will not block the execution of other cells.
@@ -77,11 +79,11 @@ So you can run another cell concurrently, provided that this cell is also cooper
 # cell 2
 for j in range(10):
     print("cell 2:", j)
-    await asyncio.sleep(1)
+    await sleep(1)
 ```
 
 If cell 2 was blocking, cell 1 would pause until cell 2 was finished. You can see that by changing
-`await asyncio.sleep(1)` into `time.sleep(1)` in cell 2.
+`await sleep(1)` into `time.sleep(1)` in cell 2.
 
 You can make a cell wait for the previous one to be finished with:
 

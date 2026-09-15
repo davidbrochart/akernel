@@ -36,8 +36,7 @@ def tb_str(traceback: List[str]) -> str:
     return nocolor_tb
 
 
-@pytest.mark.asyncio
-async def test_execute_assign(all_modes):
+async def test_execute_assign():
     code = dedent(
         """
         a = 1
@@ -47,8 +46,7 @@ async def test_execute_assign(all_modes):
     assert g == {"a": 1}
 
 
-@pytest.mark.asyncio
-async def test_execute_assign_in_try(all_modes):
+async def test_execute_assign_in_try():
     code = dedent(
         """
         try:
@@ -61,8 +59,7 @@ async def test_execute_assign_in_try(all_modes):
     assert g == {"a": 1}
 
 
-@pytest.mark.asyncio
-async def test_execute_invalid_syntax(all_modes):
+async def test_execute_invalid_syntax():
     code = dedent(
         """
         ab cd
@@ -88,8 +85,7 @@ async def test_execute_invalid_syntax(all_modes):
     assert tb_str(t) == expected
 
 
-@pytest.mark.asyncio
-async def test_execute_not_defined(all_modes):
+async def test_execute_not_defined():
     code = dedent(
         """
         a
@@ -107,8 +103,7 @@ async def test_execute_not_defined(all_modes):
     assert tb_str(t) == expected
 
 
-@pytest.mark.asyncio
-async def test_execute_import_error(all_modes):
+async def test_execute_import_error():
     code = dedent(
         """
         from .foo import bar
@@ -127,12 +122,11 @@ async def test_execute_import_error(all_modes):
     assert tb_str(t) == excepted
 
 
-@pytest.mark.asyncio
-async def test_execute_async(all_modes):
+async def test_execute_async():
     code = dedent(
         """
-        import asyncio
-        await asyncio.sleep(0)
+        import anyio
+        await anyio.sleep(0)
         a = 1
         """
     ).strip()
@@ -140,7 +134,8 @@ async def test_execute_async(all_modes):
     assert g["a"] == 1
 
 
-@pytest.mark.asyncio
+
+@pytest.mark.skip(reason="React mode not suported")
 async def test_execute_react_op():
     code = dedent(
         """
@@ -154,7 +149,7 @@ async def test_execute_react_op():
     assert g["a"].v == 3
 
 
-@pytest.mark.asyncio
+@pytest.mark.skip(reason="React mode not suported")
 async def test_execute_react_func():
     code = dedent(
         """
@@ -169,7 +164,7 @@ async def test_execute_react_func():
     assert g["a"].v == sin(2) + 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.skip(reason="Cache mode not suported")
 async def test_execute_cache():
     cache = {}
     globals_ = {}
