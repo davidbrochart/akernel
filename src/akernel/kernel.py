@@ -14,7 +14,7 @@ from akernel.comm.manager import CommManager
 from akernel.display import display
 import akernel.IPython
 from akernel.IPython import core
-from .message import create_message, feed_identities, deserialize, serialize
+from .message import create_message, feed_identities, deserialize, serialize, protocol_version
 from .execution import pre_execute, cache_execution
 from .traceback import get_traceback
 from . import __version__
@@ -174,6 +174,7 @@ class Kernel:
             to_send = serialize(msg, self.key)
             await self.from_iopub_send_stream.send(to_send)
             self.execution_state = "idle"
+            await self.publish_status("idle")
             while True:
                 try:
                     await self._start()
@@ -181,6 +182,13 @@ class Kernel:
                     self.interrupt()
                 else:
                     if not self.restart:
+                        # Finish cancellation while the transport can still
+                        # forward the cells' final replies and status messages.
+                        tasks = list(self.running_cells.values())
+                        for task in tasks:
+                            task.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+                        self.running_cells.clear()
                         break
                 finally:
                     self.task_group.cancel_scope.cancel()
@@ -214,12 +222,13 @@ class Kernel:
             parent_header = msg["header"]
             parent = msg
             if msg_type == "kernel_info_request":
+                await self.publish_status("busy", parent_header)
                 msg = self.create_message(
                     "kernel_info_reply",
                     parent_header=parent_header,
                     content={
                         "status": "ok",
-                        "protocol_version": "5.5",
+                        "protocol_version": protocol_version,
                         "implementation": "akernel",
                         "implementation_version": __version__,
                         "language_info": {
@@ -234,13 +243,18 @@ class Kernel:
                 )
                 to_send = serialize(msg, self.key)
                 await self.from_shell_send_stream.send(to_send)
-                msg = self.create_message(
-                    "status",
+                await self.publish_status("idle", parent_header)
+            elif msg_type == "history_request":
+                await self.publish_status("busy", parent_header)
+                # Execution history is not retained by this kernel.
+                reply = self.create_message(
+                    "history_reply",
                     parent_header=parent_header,
-                    content={"execution_state": self.execution_state},
+                    content={"status": "ok", "history": []},
+                    address=idents[0],
                 )
-                to_send = serialize(msg, self.key)
-                await self.from_iopub_send_stream.send(to_send)
+                await self.from_shell_send_stream.send(serialize(reply, self.key))
+                await self.publish_status("idle", parent_header)
             elif msg_type == "execute_request":
                 self.execution_state = "busy"
                 code = msg["content"]["code"]
@@ -312,20 +326,20 @@ class Kernel:
                 )
                 to_send = serialize(msg2, self.key)
                 await self.from_iopub_send_stream.send(to_send)
-                if "target_name" in msg["content"]:
-                    target_name = msg["content"]["target_name"]
-                    comms: List[str] = []
-                    msg2 = self.create_message(
-                        "comm_info_reply",
-                        parent_header=parent_header,
-                        content={
-                            "status": "ok",
-                            "comms": {comm_id: {"target_name": target_name} for comm_id in comms},
-                        },
-                        address=idents[0],
-                    )
-                    to_send = serialize(msg2, self.key)
-                    await self.from_shell_send_stream.send(to_send)
+                target_name = msg["content"].get("target_name")
+                comms = {
+                    comm_id: {"target_name": comm.target_name}
+                    for comm_id, comm in self.comm_manager.comms.items()
+                    if target_name is None or comm.target_name == target_name
+                }
+                msg2 = self.create_message(
+                    "comm_info_reply",
+                    parent_header=parent_header,
+                    content={"status": "ok", "comms": comms},
+                    address=idents[0],
+                )
+                to_send = serialize(msg2, self.key)
+                await self.from_shell_send_stream.send(to_send)
                 self.execution_state = "idle"
                 msg2 = self.create_message(
                     "status",
@@ -336,6 +350,12 @@ class Kernel:
                 await self.from_iopub_send_stream.send(to_send)
             elif msg_type == "comm_msg":
                 self.comm_manager.comm_msg(None, None, msg)  # type: ignore[arg-type]
+
+    async def publish_status(self, state: str, parent_header: Dict[str, Any] = {}) -> None:
+        msg = self.create_message(
+            "status", parent_header=parent_header, content={"execution_state": state}
+        )
+        await self.from_iopub_send_stream.send(serialize(msg, self.key))
 
     async def listen_control(self) -> None:
         while True:

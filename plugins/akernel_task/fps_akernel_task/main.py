@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fps import Module
 
-from jupyverse_api.kernel import KernelFactory
-from jupyverse_api.kernels import Kernels
+from jupyverse_kernel import KernelFactory
+from jupyverse_kernels import Kernels
 
 from .akernel_task import AKernelTask
 
