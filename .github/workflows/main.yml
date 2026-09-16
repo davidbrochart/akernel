@@ -33,7 +33,7 @@ jobs:
 
     - name: Install akernel
       run: |
-        pip install . --group dev
+        pip install ".[subprocess]" --group dev
 
     - name: Check style and types
       run: |

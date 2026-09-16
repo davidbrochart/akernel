@@ -11,52 +11,33 @@ from .kernel import Kernel
 from .kernelspec import write_kernelspec
 from .message import deserialize, feed_identities
 
-
 app = App()
 
 
 @app.command()
-def install(
-    mode: str = "",
-    cache_dir: str | None = None,
-) -> None:
-    """Install the kernel.
-
-    Args:
-        mode: Mode of the kernel to install.
-        cache_dir: Path to the cache directory, if mode is 'cache'.
-    """
-    kernel_name = "akernel"
-    if mode:
-        modes = mode.split("-")
-        modes.sort()
-        mode = "-".join(modes)
-        kernel_name += f"-{mode}"
-    display_name = f"Python 3 ({kernel_name})"
-    write_kernelspec(kernel_name, mode, display_name, cache_dir)
+def install(execute_in_thread: bool = False) -> None:
+    """Install the kernel, optionally executing user code in a thread."""
+    kernel_name = "akernel-thread" if execute_in_thread else "akernel"
+    write_kernelspec(kernel_name, f"Python 3 ({kernel_name})", execute_in_thread)
 
 
 @app.command()
 def launch(
     connection_file: Annotated[str, Parameter(alias=["-f"])],
-    mode: str = "",
-    cache_dir: str | None = None,
     execute_in_thread: bool = False,
 ):
     """Launch the kernel.
 
     Args:
-        mode: Mode of the kernel to launch.
-        cache_dir: Path to the cache directory, if mode is 'cache'.
         connection_file: Path to the connection file.
         execute_in_thread: Whether to run user code in a thread.
     """
-    akernel = AKernel(mode, cache_dir, connection_file, execute_in_thread)
+    akernel = AKernel(connection_file, execute_in_thread)
     run(akernel.start)
 
 
 class AKernel:
-    def __init__(self, mode, cache_dir, connection_file, execute_in_thread):
+    def __init__(self, connection_file, execute_in_thread=False):
         self._shutdown_reply_sent = Event()
         self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[
             list[bytes]
@@ -87,8 +68,6 @@ class AKernel:
             self._to_stdin_receive_stream,
             self._from_stdin_send_stream,
             self._from_iopub_send_stream,
-            mode,
-            cache_dir,
             execute_in_thread,
         )
         with open(connection_file) as f:

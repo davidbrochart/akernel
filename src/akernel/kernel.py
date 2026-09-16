@@ -1,35 +1,65 @@
 import platform
-import signal
 import sys
-from io import StringIO
 from contextvars import ContextVar
-from typing import Dict, Any, List, Awaitable
+from dataclasses import dataclass
+from functools import partial
+from io import StringIO
+from typing import Any, Dict, List
 
+import comm  # type: ignore
 from anyio import (
+    CancelScope,
+    RunFinishedError,
     Event,
     TaskHandle,
     create_memory_object_stream,
     create_task_group,
     from_thread,
     get_cancelled_exc_class,
-    open_signal_receiver,
     run,
     sleep,
     to_thread,
 )
-import comm  # type: ignore
+
+from anyio.lowlevel import current_token
+
+import akernel.IPython
 from akernel.comm.manager import CommManager
 from akernel.display import display
-import akernel.IPython
 from akernel.IPython import core
-from .message import create_message, feed_identities, deserialize, serialize, protocol_version
-from .execution import pre_execute, cache_execution
-from .traceback import get_traceback
-from . import __version__
 
+from . import __version__
+from .execution import CompiledCell, execute_cell, prepare_cell
+from .message import (
+    create_message,
+    deserialize,
+    feed_identities,
+    protocol_version,
+    serialize,
+)
+from .traceback import get_traceback
 
 PARENT_VAR: ContextVar = ContextVar("parent")
 IDENTS_VAR: ContextVar = ContextVar("idents")
+
+
+@dataclass
+class ThreadExecution:
+    task_i: int
+    parent: dict
+    idents: list[bytes]
+    async_cell: Any
+    reply_stream: Any
+    # Owned by the server event loop; worker access goes through from_thread.
+    _cancelled: bool = False
+    cancel_scope: CancelScope | None = None
+
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
 
 KERNEL: "Kernel"
 
@@ -44,20 +74,14 @@ class Kernel:
     restart: bool
     key: str
     comm_manager: CommManager
-    kernel_mode: str
     cell_done: Dict[int, Event]
     running_cells: Dict[int, TaskHandle]
     _source_map: Dict[str, str]
     task_i: int
     execution_count: int
     execution_state: str
-    globals: Dict[str, Dict[str, Any]]
-    locals: Dict[str, Dict[str, Any]]
-    _multi_kernel: bool | None
-    _cache_kernel: bool | None
-    _react_kernel: bool | None
-    kernel_initialized: set[str]
-    cache: Dict[str, Any] | None
+    globals: Dict[str, Any]
+    kernel_initialized: bool
 
     def __init__(
         self,
@@ -68,8 +92,6 @@ class Kernel:
         to_stdin_receive_stream,
         from_stdin_send_stream,
         from_iopub_send_stream,
-        kernel_mode: str = "",
-        cache_dir: str | None = None,
         execute_in_thread: bool = False,
     ):
         global KERNEL
@@ -85,17 +107,9 @@ class Kernel:
         self.from_stdin_send_stream = from_stdin_send_stream
         self.from_iopub_send_stream = from_iopub_send_stream
 
-        self.kernel_mode = kernel_mode
-        self.cache_dir = cache_dir
         self.execute_in_thread = execute_in_thread
-        self._concurrent_kernel = None
-        self._multi_kernel = None
-        self._cache_kernel = None
-        self._react_kernel = None
-        self.kernel_initialized = set()
+        self.kernel_initialized = False
         self.globals = {}
-        self.locals = {}
-        self._chain_execution = not self.concurrent_kernel
         self._source_map = {}
         self.cell_done = {}
         self.running_cells = {}
@@ -104,190 +118,176 @@ class Kernel:
         self.execution_state = "starting"
         self.restart = False
         self.interrupted = False
+        self._interrupt_pending = 0
+        self._interrupt_generation = 0
         self.msg_cnt = 0
-        if self.cache_kernel:
-            from .cache import cache
-
-            self.cache = cache(cache_dir)
-        else:
-            self.cache = None
         self.stop_event = Event()
-        if execute_in_thread:
-            import threading
-
-            self._stop_event = threading.Event()
+        self._stopping = False
+        self._thread_token = None
+        self._thread_jobs: dict[int, ThreadExecution] = {}
+        self._cancelled_cells: set[int] = set()
+        self._finishing_cells: dict[int, CancelScope] = {}
         self.key = "0"
 
-    def chain_execution(self) -> None:
-        self._chain_execution = True
-
-    def unchain_execution(self) -> None:
-        self._chain_execution = False
-
-    @property
-    def concurrent_kernel(self):
-        if self._concurrent_kernel is None:
-            self._concurrent_kernel = "concurrent" in self.kernel_mode
-        return self._concurrent_kernel
-
-    @property
-    def multi_kernel(self):
-        if self._multi_kernel is None:
-            self._multi_kernel = "multi" in self.kernel_mode
-        return self._multi_kernel
-
-    @property
-    def cache_kernel(self):
-        if self._cache_kernel is None:
-            self._cache_kernel = "cache" in self.kernel_mode
-        return self._cache_kernel
-
-    @property
-    def react_kernel(self):
-        if self._react_kernel is None:
-            self._react_kernel = "react" in self.kernel_mode
-        return self._react_kernel
-
-    def init_kernel(self, namespace):
-        if namespace in self.kernel_initialized:
+    def init_kernel(self):
+        if self.kernel_initialized:
             return
-
-        self.globals[namespace] = {
-            "print": self.print,
-            "__task__": self.task,
-            "__chain_execution__": self.chain_execution,
-            "__unchain_execution__": self.unchain_execution,
-            "_": None,
-        }
+        self.globals = {"print": self.print, "_": None}
         if self.execute_in_thread:
-            self.globals[namespace]["input"] = self.input
+            self.globals["input"] = self.input
         else:
-            self.globals[namespace]["ainput"] = self.ainput
-        self.locals[namespace] = {}
-        if self.react_kernel:
-            code = (
-                "import ipyx, ipywidgets;globals().update({'ipyx': ipyx, 'ipywidgets': ipywidgets})"
-            )
-            exec(code, self.globals[namespace], self.locals[namespace])
-
-        self.kernel_initialized.add(namespace)
-
-    def get_namespace(self, parent_header) -> str:
-        if self.multi_kernel:
-            return parent_header["session"]
-
-        return "namespace"
+            self.globals["ainput"] = self.ainput
+        self.kernel_initialized = True
 
     def interrupt(self):
+        """Cancel active and already queued executions without affecting later requests."""
         self.interrupted = True
-        for task in self.running_cells.values():
-            task.cancel()
-        self.running_cells = {}
+        self._interrupt_generation += 1
+        stats = self.to_shell_receive_stream.statistics()
+        self._interrupt_pending = stats.current_buffer_used + stats.tasks_waiting_send
+        for job in list(self._thread_jobs.values()):
+            self.cancel_thread_execution(job)
+        for task_i, task in self.running_cells.items():
+            self._cancelled_cells.add(task_i)
+            if self.execute_in_thread and not self._stopping:
+                # Keep waiting for the worker: requesting cancellation does not
+                # mean blocking user code has actually stopped.
+                continue
+            else:
+                task.cancel()
+
+    def cancel_thread_execution(self, job: ThreadExecution) -> None:
+        if job.cancelled():
+            return
+        job.cancel()
+        if self._thread_token is not None and job.cancel_scope is not None:
+            self.send_worker_command(job.cancel_scope.cancel)
+
+    def send_worker_command(self, func, *args) -> None:
+        self._worker_commands_send.send_nowait((self._thread_token, func, args))
+
+    async def forward_worker_commands(self) -> None:
+        # Cross-thread calls wait for the worker loop. Run them off the server
+        # thread and preserve their order, including the shutdown sentinel.
+        with CancelScope(shield=True):
+            async with self._worker_commands_receive:
+                async for token, func, args in self._worker_commands_receive:
+                    try:
+                        await to_thread.run_sync(
+                            partial(from_thread.run_sync, func, *args, token=token)
+                        )
+                    except RunFinishedError:
+                        if not self._stopping:
+                            raise
+
+    def deliver_thread_result(self, job, result, exception, traceback) -> None:
+        self._thread_jobs.pop(job.task_i, None)
+        try:
+            if not self._stopping:
+                job.reply_stream.send_nowait((result, exception, traceback))
+        finally:
+            job.reply_stream.close()
 
     async def thread_execute(self):
         while True:
-            message = await to_thread.run_sync(self.to_thread_queue.get)
-            if message is None:
+            job = await self._thread_receive.receive()
+            if job is None:
                 return
 
-            parent, idents, async_cell = message
-            PARENT_VAR.set(parent)
-            IDENTS_VAR.set(idents)
+            PARENT_VAR.set(job.parent)
+            IDENTS_VAR.set(job.idents)
             result = None
             exception = None
             traceback = None
-            try:
-                result = await async_cell()
-            except get_cancelled_exc_class():
-                return
-            except Exception:
-                exc_type, exception, traceback = sys.exc_info()
-            from_thread.run_sync(
-                self.from_thread_send_stream.send_nowait, (result, exception, traceback)
-            )
+            with CancelScope() as scope:
+                job.cancel_scope = scope
+                if not from_thread.run_sync(job.cancelled):
+                    try:
+                        result = await job.async_cell()
+                    except get_cancelled_exc_class() as exc:
+                        exception = KeyboardInterrupt()
+                        traceback = exc.__traceback__
+                    except (Exception, KeyboardInterrupt):
+                        exc_type, exception, traceback = sys.exc_info()
+                else:
+                    # Cancellation was requested before this job began.
+                    exception = KeyboardInterrupt()
+            from_thread.run_sync(self.deliver_thread_result, job, result, exception, traceback)
+
+    def _is_stopping(self) -> bool:
+        return self._stopping
 
     async def thread_main(self) -> None:
-        async with create_task_group() as tg:
-            tg.start_soon(self.thread_execute)
-            await to_thread.run_sync(self._stop_event.wait)
-            tg.cancel_scope.cancel()
+        self._thread_token = current_token()
+        self._thread_send, self._thread_receive = create_memory_object_stream(float("inf"))
+        from_thread.run_sync(self._thread_ready.set)
+        try:
+            async with self._thread_send, self._thread_receive:
+                if not from_thread.run_sync(self._is_stopping):
+                    await self.thread_execute()
+        finally:
+            self._thread_token = None
 
-    def thread(self) -> None:
+    def run_thread(self) -> None:
         run(self.thread_main)
-
-    async def signal_handler(self):
-        with open_signal_receiver(signal.SIGINT) as signals:
-            async for signum in signals:
-                if signum == signal.SIGINT:
-                    self.interrupt()
-                    with open("log.txt", "a") as f: f.write("interrupt\n")
 
     async def start(self) -> None:
         async with create_task_group() as self.task_group:
-            self.task_group.start_soon(self.signal_handler)
-            if self.execute_in_thread:
-                from queue import Queue
-
-                self.to_thread_queue = Queue()
-                self.from_thread_send_stream, self.from_thread_receive_stream = (
-                    create_memory_object_stream(max_buffer_size=1)
+            self._stopping = False
+            try:
+                if self.execute_in_thread:
+                    self._worker_commands_send, self._worker_commands_receive = (
+                        create_memory_object_stream(float("inf"))
+                    )
+                    self.task_group.start_soon(self.forward_worker_commands)
+                    self._thread_ready = Event()
+                    self.task_group.start_soon(to_thread.run_sync, self.run_thread)
+                    await self._thread_ready.wait()
+                msg = self.create_message(
+                    "status", content={"execution_state": self.execution_state}
                 )
-                self.task_group.start_soon(to_thread.run_sync, self.thread)
-            msg = self.create_message("status", content={"execution_state": self.execution_state})
-            to_send = serialize(msg, self.key)
-            await self.from_iopub_send_stream.send(to_send)
-            self.execution_state = "idle"
-            await self.publish_status("idle")
-            while True:
-                try:
+                to_send = serialize(msg, self.key)
+                await self.from_iopub_send_stream.send(to_send)
+                self.execution_state = "idle"
+                await self.publish_status("idle")
+                while True:
                     await self._start()
-                except KeyboardInterrupt:
-                    self.interrupt()
-                else:
                     if not self.restart:
-                        # Finish cancellation while the transport can still
-                        # forward the cells' final replies and status messages.
-                        tasks = list(self.running_cells.values())
-                        for task in tasks:
-                            task.cancel()
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                        self.running_cells.clear()
                         break
+            finally:
+                self._stopping = True
+                try:
+                    self.interrupt()
+                    for scope in list(self._finishing_cells.values()):
+                        scope.cancel()
+                    if self._thread_token is not None:
+                        self.send_worker_command(self._thread_send.send_nowait, None)
                 finally:
+                    if self.execute_in_thread:
+                        self._worker_commands_send.close()
                     self.task_group.cancel_scope.cancel()
 
     async def _start(self) -> None:
         self.task_group.start_soon(self.listen_shell)
         self.task_group.start_soon(self.listen_control)
-        try:
-            while True:
-                # run until shutdown request
-                await self.stop_event.wait()
-                if self.restart:
-                    # kernel restart
-                    self.stop_event = Event()
-                else:
-                    # kernel shutdown
-                    break
-        except get_cancelled_exc_class():
-            if self.execute_in_thread:
-                self._stop_event.set()
-                self.to_thread_queue.put(None)
-            raise
+        while True:
+            # run until shutdown request
+            await self.stop_event.wait()
+            if self.restart:
+                self.stop_event = Event()
+            else:
+                break
 
     async def listen_shell(self) -> None:
         while True:
-            # let a chance to execute a blocking cell
+            # Give cell execution a scheduling opportunity.
             await sleep(0)
-            # if there was a blocking cell execution, and it was interrupted,
-            # let's ignore all the following execution requests until the pipe
-            # is empty
-            if (
-                self.interrupted
-                and self.to_shell_receive_stream.statistics().tasks_waiting_send == 0
-            ):
-                self.interrupted = False
             msg_list = await self.to_shell_receive_stream.receive()
+            # Only discard requests that were queued when interrupt() ran.
+            interrupt_generation = self._interrupt_generation
+            interrupted = self._interrupt_pending > 0
+            if interrupted:
+                self._interrupt_pending -= 1
             idents, msg_list = feed_identities(msg_list)
             msg = deserialize(msg_list)
             msg_type = msg["header"]["msg_type"]
@@ -337,7 +337,7 @@ class Kernel:
                 )
                 to_send = serialize(msg, self.key)
                 await self.from_iopub_send_stream.send(to_send)
-                if self.interrupted:
+                if interrupted or interrupt_generation != self._interrupt_generation:
                     await self.finish_execution(idents, parent_header, None, no_exec=True)
                     continue
                 msg = self.create_message(
@@ -347,26 +347,18 @@ class Kernel:
                 )
                 to_send = serialize(msg, self.key)
                 await self.from_iopub_send_stream.send(to_send)
-                namespace = self.get_namespace(parent_header)
-                self.init_kernel(namespace)
-                traceback, exception, cache_info = pre_execute(
+                # Publishing input can yield before this request has a task.
+                # Include it in an interrupt that arrived during dispatch.
+                if interrupt_generation != self._interrupt_generation:
+                    await self.finish_execution(idents, parent_header, None, no_exec=True)
+                    continue
+                self.init_kernel()
+                cell, traceback, exception = prepare_cell(
                     code,
-                    self.globals[namespace],
-                    self.locals[namespace],
                     self.task_i,
                     self.execution_count,
-                    react=self.react_kernel,
-                    cache=self.cache,
                 )
-                if cache_info["cached"]:
-                    await self.finish_execution(
-                        idents,
-                        parent_header,
-                        self.execution_count,
-                        result=cache_info["result"],
-                    )
-                    self.execution_count += 1
-                elif traceback:
+                if traceback:
                     await self.finish_execution(
                         idents,
                         parent_header,
@@ -375,6 +367,7 @@ class Kernel:
                         exception=exception,
                     )
                 else:
+                    assert cell is not None
                     task = self.task_group.create_task(
                         self.execute_and_finish(
                             idents,
@@ -382,7 +375,7 @@ class Kernel:
                             self.task_i,
                             self.execution_count,
                             code,
-                            cache_info,
+                            cell,
                         )
                     )
                     self.cell_done[self.task_i] = Event()
@@ -436,7 +429,16 @@ class Kernel:
             msg = deserialize(msg_list)
             msg_type = msg["header"]["msg_type"]
             parent_header = msg["header"]
-            if msg_type == "shutdown_request":
+            if msg_type == "interrupt_request":
+                self.interrupt()
+                reply = self.create_message(
+                    "interrupt_reply",
+                    parent_header=parent_header,
+                    content={"status": "ok"},
+                    address=idents[0],
+                )
+                await self.from_control_send_stream.send(serialize(reply, self.key))
+            elif msg_type == "shutdown_request":
                 self.restart = msg["content"]["restart"]
                 msg = self.create_message(
                     "shutdown_reply",
@@ -457,73 +459,83 @@ class Kernel:
         task_i: int,
         execution_count: int,
         code: str,
-        cache_info: Dict[str, Any],
+        cell: CompiledCell,
     ) -> None:
-        prev_task_i = task_i - 1
-        if self._chain_execution and prev_task_i in self.cell_done:
-            await self.cell_done[prev_task_i].wait()
-            del self.cell_done[prev_task_i]
         parent_header = parent["header"]
+        PARENT_VAR.set(parent)
+        IDENTS_VAR.set(idents)
         traceback, exception = [], None
-        namespace = self.get_namespace(parent_header)
         self._source_map[f"<cell-{task_i}>"] = code
+        job = None
         try:
-            with open("log.txt", "a") as f: f.write("execute\n")
+            prev_task_i = task_i - 1
+            if prev_task_i in self.cell_done:
+                await self.cell_done[prev_task_i].wait()
+                self.cell_done.pop(prev_task_i, None)
+            if task_i in self._cancelled_cells:
+                raise KeyboardInterrupt()
             if self.execute_in_thread:
-                self.to_thread_queue.put(
-                    (parent, idents, self.locals[namespace][f"__async_cell{task_i}__"])
+                send_stream, receive_stream = create_memory_object_stream(1)
+                job = ThreadExecution(
+                    task_i,
+                    parent,
+                    idents,
+                    partial(execute_cell, cell, self.globals),
+                    send_stream,
                 )
-                result, exception, traceback = await self.from_thread_receive_stream.receive()
-            else:
-                PARENT_VAR.set(parent)
-                IDENTS_VAR.set(idents)
-                result = await self.locals[namespace][f"__async_cell{task_i}__"]()
-        except KeyboardInterrupt:
-            with open("log.txt", "a") as f: f.write("interrupt\n")
-            self.interrupt()
-        except Exception:
-            with open("log.txt", "a") as f: f.write("interrupt\n")
-            if self.execute_in_thread:
-                raise
-            else:
-                exc_type, exception, traceback = sys.exc_info()
-                traceback = get_traceback(code, exception, traceback, execution_count, self._source_map)
-        else:
-            if self.execute_in_thread:
+                self._thread_jobs[task_i] = job
+                self.send_worker_command(self._thread_send.send_nowait, job)
+                try:
+                    result, exception, traceback = await receive_stream.receive()
+                finally:
+                    receive_stream.close()
                 if exception is not None:
-                    traceback = get_traceback(code, exception, traceback, execution_count)
-                else:
-                    await self.show_result(result, self.globals[namespace], parent_header)
-                    cache_execution(self.cache, cache_info, self.globals[namespace], result)
+                    traceback = get_traceback(
+                        code, exception, traceback, execution_count, self._source_map
+                    )
             else:
-                await self.show_result(result, self.globals[namespace], parent_header)
-                cache_execution(self.cache, cache_info, self.globals[namespace], result)
+                result = await execute_cell(cell, self.globals)
+            if exception is None:
+                await self.show_result(result, self.globals, parent_header)
+        except (get_cancelled_exc_class(), KeyboardInterrupt) as exc:
+            if job is not None:
+                self.cancel_thread_execution(job)
+            exception = KeyboardInterrupt()
+            traceback = get_traceback(
+                code, exception, exc.__traceback__, execution_count, self._source_map
+            )
+        except Exception:
+            exc_type, exception, traceback = sys.exc_info()
+            traceback = get_traceback(code, exception, traceback, execution_count, self._source_map)
         finally:
             self.cell_done[task_i].set()
-            del self.locals[namespace][f"__async_cell{task_i}__"]
-            await self.finish_execution(
-                idents,
-                parent_header,
-                execution_count,
-                exception=exception,
-                traceback=traceback,
-            )
-            if task_i in self.running_cells:
-                del self.running_cells[task_i]
+            try:
+                if not self._stopping:
+                    # TaskHandle.cancel() uses level cancellation: the final
+                    # reply must be shielded so the frontend can finish the cell.
+                    with CancelScope(shield=True) as scope:
+                        self._finishing_cells[task_i] = scope
+                        await self.finish_execution(
+                            idents,
+                            parent_header,
+                            execution_count,
+                            exception=exception,
+                            traceback=traceback,
+                        )
+            finally:
+                self._finishing_cells.pop(task_i, None)
+                self._cancelled_cells.discard(task_i)
+                self.running_cells.pop(task_i, None)
 
     async def finish_execution(
         self,
         idents: List[bytes],
         parent_header: Dict[str, Any],
         execution_count: int | None,
-        exception: Exception | None = None,
+        exception: BaseException | None = None,
         no_exec: bool = False,
         traceback: List[str] = [],
-        result=None,
     ) -> None:
-        if result:
-            namespace = self.get_namespace(parent_header)
-            await self.show_result(result, self.globals[namespace], parent_header)
         if no_exec:
             status = "aborted"
         else:
@@ -535,7 +547,7 @@ class Kernel:
                     parent_header=parent_header,
                     content={
                         "ename": type(exception).__name__,
-                        "evalue": exception.args[0],
+                        "evalue": str(exception),
                         "traceback": traceback,
                     },
                 )
@@ -559,15 +571,6 @@ class Kernel:
         )
         to_send = serialize(msg, self.key)
         await self.from_iopub_send_stream.send(to_send)
-
-    def task(self, cell_i: int = -1) -> Awaitable:
-        if cell_i < 0:
-            i = self.task_i - 1 + cell_i
-        else:
-            i = cell_i
-        if i in self.running_cells:
-            return self.running_cells[i].wait()
-        return sleep(0)
 
     def input(self, prompt: str = "") -> Any:
         parent = PARENT_VAR.get()

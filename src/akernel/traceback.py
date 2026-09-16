@@ -1,61 +1,85 @@
 from __future__ import annotations
 
-import types
-from traceback import extract_tb, format_list
-from typing import Dict, cast
+import linecache
+from pathlib import Path
+from types import TracebackType
+from uuid import uuid4
 
-from colorama import Fore, Style  # type: ignore
+from rich.console import Console
+from rich.traceback import Trace, Traceback
+
+_KERNEL_DIRECTORY = str(Path(__file__).parent) + "/"
 
 
-def get_traceback(code: str, exception, tb: types.TracebackType, execution_count: int = 0, source_map: Dict[str, str] | None = None):
-    while True:
-        if tb.tb_next is None:
-            break
-        tb = tb.tb_next
-    stack = []
-    frame: types.FrameType | None = tb.tb_frame
-    while True:
-        assert frame is not None
-        stack.append(frame)
-        frame = frame.f_back
-        if frame is None:
-            break
-    stack.reverse()
-    traceback = ["Traceback (most recent call last):"]
-    get_frame = False
-    print
-    for frame in stack:
-        if frame.f_code.co_name.startswith("__async_cell"):
-            name = "<module>"
-            get_frame = True
-        else:
-            name = frame.f_code.co_name
-        if get_frame:
-            filename = frame.f_code.co_filename
-            if filename.startswith("<cell-"):
-                source = source_map.get(filename, "") if source_map else ""
-                display_filename = (
-                    f"{Fore.CYAN}Cell{Style.RESET_ALL} {Fore.GREEN}{int(filename[6:-1]) + 1}"
-                    f"{Style.RESET_ALL}"
-                )
-            else:
-                with open(filename) as f:
-                    source = f.read()
-                display_filename = (
-                    f"{Fore.CYAN}File{Style.RESET_ALL} {Fore.GREEN}{filename}"
-                    f"{Style.RESET_ALL}"
-                )
-            name = "<module>" if frame.f_code.co_name.startswith("__async_cell") else frame.f_code.co_name
-            trace = [
-                f"  {display_filename}, "
-                f"{Fore.CYAN}line{Style.RESET_ALL} "
-                f"{Fore.GREEN}{frame.f_lineno}{Style.RESET_ALL}, "
-                f"in {Fore.CYAN}{name}{Style.RESET_ALL}:"
+def get_traceback(
+    code: str,
+    exception: BaseException,
+    tb: TracebackType | None,
+    execution_count: int = 0,
+    source_map: dict[str, str] | None = None,
+) -> list[str]:
+    rich_traceback = Traceback.from_exception(
+        type(exception),
+        exception,
+        tb,
+        show_locals=False,
+        width=100,
+        extra_lines=2,
+    )
+    cached_sources = []
+    render_id = uuid4().hex
+
+    def adapt(trace: Trace) -> None:
+        for stack in trace.stacks:
+            first_cell = next(
+                (i for i, frame in enumerate(stack.frames) if frame.filename.startswith("<cell-")),
+                None,
+            )
+            if first_cell is not None:
+                stack.frames = stack.frames[first_cell:]
+            stack.frames = [
+                frame for frame in stack.frames if not frame.filename.startswith(_KERNEL_DIRECTORY)
             ]
-            if source:
-                trace.append("    " + source.splitlines()[frame.f_lineno - 1].lstrip())
-            traceback += trace
-    traceback += [
-        f"{Fore.RED}{type(exception).__name__}{Style.RESET_ALL}: {exception.args[0]}"
-    ]
-    return traceback
+            for frame in stack.frames:
+                if not frame.filename.startswith("<cell-"):
+                    continue
+                cell_number = int(frame.filename[6:-1]) + 1
+                source = source_map.get(frame.filename, "") if source_map is not None else code
+                # Rich skips snippets for angle-bracket filenames. Give this
+                # rendering a unique source-cache key without creating files or
+                # overwriting another kernel's cell sources.
+                filename = f"akernel-{render_id}/cell-{cell_number}.py"
+                linecache.cache[filename] = (
+                    len(source),
+                    None,
+                    source.splitlines(keepends=True),
+                    filename,
+                )
+                cached_sources.append(filename)
+                frame.filename = filename
+                frame.name = f"Cell {cell_number} ({frame.name})"
+            syntax = stack.syntax_error
+            if syntax is not None and syntax.filename.startswith("<cell-"):
+                source = source_map.get(syntax.filename, "") if source_map is not None else code
+                lines = source.splitlines()
+                if not syntax.line and 0 < syntax.lineno <= len(lines):
+                    syntax.line = lines[syntax.lineno - 1]
+                syntax.filename = f"Cell {int(syntax.filename[6:-1]) + 1}"
+                syntax.msg += f" ({syntax.filename}, line {syntax.lineno})"
+            for child in stack.exceptions:
+                adapt(child)
+
+    try:
+        adapt(rich_traceback.trace)
+        console = Console(
+            force_terminal=True,
+            force_jupyter=False,
+            color_system="standard",
+            width=100,
+        )
+        with console.capture() as capture:
+            console.print(rich_traceback)
+        return capture.get().splitlines()
+    finally:
+        for filename in cached_sources:
+            linecache.cache.pop(filename, None)

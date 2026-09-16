@@ -49,4 +49,4 @@ class AKernelTask(_Kernel):
         self.task_group.cancel_scope.cancel()
 
     async def interrupt(self) -> None:
-        pass
+        self.kernel.interrupt()
