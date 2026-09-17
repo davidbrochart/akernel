@@ -56,12 +56,22 @@ def test_exception_group():
     assert "Sub-exception #1" in text
 
 
-@pytest.mark.parametrize("code", ["return 1", "value = (", "\0"])
+@pytest.mark.parametrize("code", ["return 1", "value = ("])
 def test_syntax_errors_without_complete_location_information(code):
     cell, lines, exc = prepare_cell(code)
     assert cell is None
     assert isinstance(exc, SyntaxError)
     assert "SyntaxError:" in Text.from_ansi("\n".join(lines)).plain
+
+
+def test_null_bytes_are_reported_as_cell_errors():
+    cell, lines, exc = prepare_cell("\0")
+    error_type = ValueError if sys.version_info < (3, 11) else SyntaxError
+    assert cell is None
+    assert isinstance(exc, error_type)
+    text = Text.from_ansi("\n".join(lines)).plain
+    assert f"{error_type.__name__}:" in text
+    assert "null bytes" in text
 
 
 def test_each_render_uses_its_own_cell_source():

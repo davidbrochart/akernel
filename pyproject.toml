@@ -38,6 +38,7 @@ dev = [
     "pytest-rerunfailures",
     "types-python-dateutil",
     "kernel_driver >=0.0.7",
+    "tornado >=6.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

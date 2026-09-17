@@ -47,7 +47,8 @@ def prepare_cell(code: str, task_i: int = 0, execution_count: int = 0):
     cell = None
     try:
         cell = compile_cell(code, task_i)
-    except SyntaxError as exc:
+    except (SyntaxError, ValueError) as exc:
+        # Python 3.10 reports null bytes in source as ValueError.
         exception = exc
         traceback = get_traceback(
             code, exception, None, execution_count, {f"<cell-{task_i}>": code}
