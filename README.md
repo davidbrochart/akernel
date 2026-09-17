@@ -2,9 +2,9 @@
 
 # akernel
 
-An asynchronous Python Jupyter kernel built on AnyIO. Cells execute sequentially
-and share one namespace. Top-level `await` lets cooperative cell code yield while
-the kernel handles messages and interrupts.
+An asynchronous Python Jupyter kernel built on AnyIO:
+- runs in a separate process or in-process.
+- supports top-level `await`.
 
 ## Install
 
@@ -29,8 +29,10 @@ in JupyterLab.
 ## In-process kernels
 
 They run in Jupyverse's process, so running blocking user code in the kernel
-will also block Jupyverse. `akernel-thread` is an in-process kernel that runs
-user code in a separate thread, which won't block Jupyverse.
+will also block Jupyverse.
+
+`akernel-thread` is an in-process kernel that runs user code in a separate thread,
+which won't block Jupyverse.
 
 ## Limitations
 
