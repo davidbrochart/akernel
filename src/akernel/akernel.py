@@ -1,57 +1,65 @@
 from __future__ import annotations
 
 import json
-from typing import Optional, cast
+from typing import Annotated, cast
 
-import typer
-from anyio import create_memory_object_stream, create_task_group, run, sleep_forever
+from anyio import Event, create_memory_object_stream, create_task_group, run
+from cyclopts import App, Parameter
 
 from .connect import connect_channel
 from .kernel import Kernel
 from .kernelspec import write_kernelspec
+from .message import deserialize, feed_identities
+
+app = App()
 
 
-cli = typer.Typer()
+@app.command()
+def install(execute_in_thread: bool = False) -> None:
+    """Install the kernel, optionally executing user code in a thread."""
+    kernel_name = "akernel-thread" if execute_in_thread else "akernel"
+    write_kernelspec(kernel_name, f"Python 3 ({kernel_name})", execute_in_thread)
 
 
-@cli.command()
-def install(
-    mode: str = typer.Argument("", help="Mode of the kernel to install."),
-    cache_dir: Optional[str] = typer.Option(
-        None, "-c", help="Path to the cache directory, if mode is 'cache'."
-    ),
-):
-    kernel_name = "akernel"
-    if mode:
-        modes = mode.split("-")
-        modes.sort()
-        mode = "-".join(modes)
-        kernel_name += f"-{mode}"
-    display_name = f"Python 3 ({kernel_name})"
-    write_kernelspec(kernel_name, mode, display_name, cache_dir)
-
-
-@cli.command()
+@app.command()
 def launch(
-    mode: str = typer.Argument("", help="Mode of the kernel to launch."),
-    cache_dir: Optional[str] = typer.Option(
-        None, "-c", help="Path to the cache directory, if mode is 'cache'."
-    ),
-    connection_file: str = typer.Option(..., "-f", help="Path to the connection file."),
+    connection_file: Annotated[str, Parameter(alias=["-f"])],
+    execute_in_thread: bool = False,
 ):
-    akernel = AKernel(mode, cache_dir, connection_file)
+    """Launch the kernel.
+
+    Args:
+        connection_file: Path to the connection file.
+        execute_in_thread: Whether to run user code in a thread.
+    """
+    akernel = AKernel(connection_file, execute_in_thread)
     run(akernel.start)
 
 
 class AKernel:
-    def __init__(self, mode, cache_dir, connection_file):
-        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_control_send_stream, self._from_control_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[list[bytes]]()
-        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[list[bytes]](max_buffer_size=float("inf"))
+    def __init__(self, connection_file, execute_in_thread=False):
+        self._shutdown_reply_sent = Event()
+        self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._to_control_send_stream, self._to_control_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_control_send_stream, self._from_control_receive_stream = (
+            create_memory_object_stream[list[bytes]]()
+        )
+        self._to_stdin_send_stream, self._to_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_stdin_send_stream, self._from_stdin_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ]()
+        self._from_iopub_send_stream, self._from_iopub_receive_stream = create_memory_object_stream[
+            list[bytes]
+        ](max_buffer_size=float("inf"))
         self.kernel = Kernel(
             self._to_shell_receive_stream,
             self._from_shell_send_stream,
@@ -60,8 +68,7 @@ class AKernel:
             self._to_stdin_receive_stream,
             self._from_stdin_send_stream,
             self._from_iopub_send_stream,
-            mode,
-            cache_dir,
+            execute_in_thread,
         )
         with open(connection_file) as f:
             connection_cfg = json.load(f)
@@ -73,7 +80,6 @@ class AKernel:
 
     async def start(self) -> None:
         async with (
-            create_task_group() as tg,
             self._to_shell_send_stream,
             self._to_shell_receive_stream,
             self._from_shell_send_stream,
@@ -92,8 +98,8 @@ class AKernel:
             self.control_channel,
             self.stdin_channel,
             self.iopub_channel,
+            create_task_group() as tg,
         ):
-            tg.start_soon(self.kernel.start)
             tg.start_soon(self.to_shell)
             tg.start_soon(self.from_shell)
             tg.start_soon(self.to_control)
@@ -101,39 +107,46 @@ class AKernel:
             tg.start_soon(self.to_stdin)
             tg.start_soon(self.from_stdin)
             tg.start_soon(self.from_iopub)
-            await sleep_forever()
+            await self.kernel.start()
+            # Receiving from the memory stream does not mean the reply has
+            # reached the socket yet. Keep the forwarder alive until it has.
+            await self._shutdown_reply_sent.wait()
+            tg.cancel_scope.cancel()
 
     async def to_shell(self) -> None:
         while True:
-            msg = await self.shell_channel.arecv_multipart().wait()
+            msg = await self.shell_channel.arecv_multipart()
             await self._to_shell_send_stream.send(msg)
 
     async def from_shell(self) -> None:
         async for msg in self._from_shell_receive_stream:
-            await self.shell_channel.asend_multipart(msg, copy=True).wait()
+            await self.shell_channel.asend_multipart(msg, copy=True)
 
     async def to_control(self) -> None:
         while True:
-            msg = await self.control_channel.arecv_multipart().wait()
+            msg = await self.control_channel.arecv_multipart()
             await self._to_control_send_stream.send(msg)
 
     async def from_control(self) -> None:
         async for msg in self._from_control_receive_stream:
-            await self.control_channel.asend_multipart(msg, copy=True).wait()
+            await self.control_channel.asend_multipart(msg, copy=True)
+            reply = deserialize(feed_identities(msg)[1])
+            if reply["header"]["msg_type"] == "shutdown_reply" and not reply["content"]["restart"]:
+                self._shutdown_reply_sent.set()
 
     async def to_stdin(self) -> None:
         while True:
-            msg = await self.stdin_channel.arecv_multipart().wait()
+            msg = await self.stdin_channel.arecv_multipart()
             await self._to_stdin_send_stream.send(msg)
 
     async def from_stdin(self) -> None:
         async for msg in self._from_stdin_receive_stream:
-            await self.stdin_channel.asend_multipart(msg, copy=True).wait()
+            await self.stdin_channel.asend_multipart(msg, copy=True)
 
     async def from_iopub(self) -> None:
         async for msg in self._from_iopub_receive_stream:
-            await self.iopub_channel.asend_multipart(msg, copy=True).wait()
+            await self.iopub_channel.asend_multipart(msg, copy=True)
 
 
 if __name__ == "__main__":
-    cli()
+    app()

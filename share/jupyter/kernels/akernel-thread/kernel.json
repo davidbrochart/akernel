@@ -1,0 +1,11 @@
+{
+  "argv": [
+    "akernel",
+    "launch",
+    "--execute-in-thread",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "Python 3 (akernel-thread)",
+  "language": "python"
+}

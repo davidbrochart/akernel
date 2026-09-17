@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import os
-import sys
 import json
+import sys
+from pathlib import Path
 
 
-def write_kernelspec(dir_name: str, mode: str, display_name: str, cache_dir: str | None) -> None:
+def write_kernelspec(dir_name: str, display_name: str, execute_in_thread: bool = False) -> None:
     argv = ["akernel", "launch"]
-    if mode:
-        argv.append(mode)
-    if mode == "cache" and cache_dir:
-        argv += ["-c", cache_dir]
+    if execute_in_thread:
+        argv.append("--execute-in-thread")
     argv += ["-f", "{connection_file}"]
     kernelspec = {
         "argv": argv,
         "display_name": display_name,
         "language": "python",
     }
-    directory = os.path.join(sys.prefix, "share", "jupyter", "kernels", dir_name)
-    os.makedirs(directory, exist_ok=True)
-    with open(os.path.join(directory, "kernel.json"), "wt") as f:
-        json.dump(kernelspec, f, indent=2)
+    directory = Path(sys.prefix) / "share" / "jupyter" / "kernels" / dir_name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "kernel.json").write_text(json.dumps(kernelspec, indent=2), encoding="utf-8")

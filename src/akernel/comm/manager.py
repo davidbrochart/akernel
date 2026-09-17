@@ -1,4 +1,5 @@
-from typing import Dict, Callable, cast
+from collections.abc import Callable
+from typing import cast
 
 import comm
 
@@ -7,7 +8,7 @@ from .comm import Comm
 
 class CommManager(comm.CommManager):
     comms: dict[str, comm.base_comm.BaseComm]
-    targets: Dict[str, Callable]
+    targets: dict[str, Callable]
 
     def __init__(self) -> None:
         super().__init__()
