@@ -1,27 +1,27 @@
 import platform
 import sys
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
 from io import StringIO
-from typing import Any, Dict, List
+from types import TracebackType
+from typing import Any
 
 import comm  # type: ignore
 from anyio import (
     CancelScope,
-    RunFinishedError,
     Event,
+    RunFinishedError,
     TaskHandle,
     create_memory_object_stream,
     create_task_group,
     from_thread,
     get_cancelled_exc_class,
     run,
-    sleep,
     to_thread,
 )
-
-from anyio.lowlevel import current_token
+from anyio.lowlevel import EventLoopToken, checkpoint, current_token
 
 import akernel.IPython
 from akernel.comm.manager import CommManager
@@ -38,6 +38,9 @@ from .message import (
     serialize,
 )
 from .traceback import get_traceback
+
+ThreadResult = tuple[Any, BaseException | None, TracebackType | None]
+WorkerCommand = tuple[EventLoopToken, Callable[..., Any], tuple[Any, ...]]
 
 PARENT_VAR: ContextVar = ContextVar("parent")
 IDENTS_VAR: ContextVar = ContextVar("idents")
@@ -74,13 +77,13 @@ class Kernel:
     restart: bool
     key: str
     comm_manager: CommManager
-    cell_done: Dict[int, Event]
-    running_cells: Dict[int, TaskHandle]
-    _source_map: Dict[str, str]
+    cell_done: dict[int, Event]
+    running_cells: dict[int, TaskHandle]
+    _source_map: dict[str, str]
     task_i: int
     execution_count: int
     execution_state: str
-    globals: Dict[str, Any]
+    globals: dict[str, Any]
     kernel_initialized: bool
 
     def __init__(
@@ -123,7 +126,7 @@ class Kernel:
         self.msg_cnt = 0
         self.stop_event = Event()
         self._stopping = False
-        self._thread_token = None
+        self._thread_token: EventLoopToken | None = None
         self._thread_jobs: dict[int, ThreadExecution] = {}
         self._cancelled_cells: set[int] = set()
         self._finishing_cells: dict[int, CancelScope] = {}
@@ -163,8 +166,10 @@ class Kernel:
         if self._thread_token is not None and job.cancel_scope is not None:
             self.send_worker_command(job.cancel_scope.cancel)
 
-    def send_worker_command(self, func, *args) -> None:
-        self._worker_commands_send.send_nowait((self._thread_token, func, args))
+    def send_worker_command(self, func: Callable[..., Any], *args: Any) -> None:
+        token = self._thread_token
+        assert token is not None
+        self._worker_commands_send.send_nowait((token, func, args))
 
     async def forward_worker_commands(self) -> None:
         # Cross-thread calls wait for the worker loop. Run them off the server
@@ -207,8 +212,9 @@ class Kernel:
                     except get_cancelled_exc_class() as exc:
                         exception = KeyboardInterrupt()
                         traceback = exc.__traceback__
-                    except (Exception, KeyboardInterrupt):
-                        exc_type, exception, traceback = sys.exc_info()
+                    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 - report user errors
+                        exception = exc
+                        traceback = exc.__traceback__
                 else:
                     # Cancellation was requested before this job began.
                     exception = KeyboardInterrupt()
@@ -219,7 +225,9 @@ class Kernel:
 
     async def thread_main(self) -> None:
         self._thread_token = current_token()
-        self._thread_send, self._thread_receive = create_memory_object_stream(float("inf"))
+        self._thread_send, self._thread_receive = create_memory_object_stream[
+            ThreadExecution | None
+        ](float("inf"))
         from_thread.run_sync(self._thread_ready.set)
         try:
             async with self._thread_send, self._thread_receive:
@@ -237,7 +245,7 @@ class Kernel:
             try:
                 if self.execute_in_thread:
                     self._worker_commands_send, self._worker_commands_receive = (
-                        create_memory_object_stream(float("inf"))
+                        create_memory_object_stream[WorkerCommand](float("inf"))
                     )
                     self.task_group.start_soon(self.forward_worker_commands)
                     self._thread_ready = Event()
@@ -281,7 +289,7 @@ class Kernel:
     async def listen_shell(self) -> None:
         while True:
             # Give cell execution a scheduling opportunity.
-            await sleep(0)
+            await checkpoint()
             msg_list = await self.to_shell_receive_stream.receive()
             # Only discard requests that were queued when interrupt() ran.
             interrupt_generation = self._interrupt_generation
@@ -416,7 +424,7 @@ class Kernel:
             elif msg_type == "comm_msg":
                 self.comm_manager.comm_msg(None, None, msg)  # type: ignore[arg-type]
 
-    async def publish_status(self, state: str, parent_header: Dict[str, Any] = {}) -> None:
+    async def publish_status(self, state: str, parent_header: dict[str, Any] | None = None) -> None:
         msg = self.create_message(
             "status", parent_header=parent_header, content={"execution_state": state}
         )
@@ -454,8 +462,8 @@ class Kernel:
 
     async def execute_and_finish(
         self,
-        idents: List[bytes],
-        parent: Dict[str, Any],
+        idents: list[bytes],
+        parent: dict[str, Any],
         task_i: int,
         execution_count: int,
         code: str,
@@ -475,7 +483,7 @@ class Kernel:
             if task_i in self._cancelled_cells:
                 raise KeyboardInterrupt()
             if self.execute_in_thread:
-                send_stream, receive_stream = create_memory_object_stream(1)
+                send_stream, receive_stream = create_memory_object_stream[ThreadResult](1)
                 job = ThreadExecution(
                     task_i,
                     parent,
@@ -486,12 +494,12 @@ class Kernel:
                 self._thread_jobs[task_i] = job
                 self.send_worker_command(self._thread_send.send_nowait, job)
                 try:
-                    result, exception, traceback = await receive_stream.receive()
+                    result, exception, worker_traceback = await receive_stream.receive()
                 finally:
                     receive_stream.close()
                 if exception is not None:
                     traceback = get_traceback(
-                        code, exception, traceback, execution_count, self._source_map
+                        code, exception, worker_traceback, execution_count, self._source_map
                     )
             else:
                 result = await execute_cell(cell, self.globals)
@@ -504,9 +512,11 @@ class Kernel:
             traceback = get_traceback(
                 code, exception, exc.__traceback__, execution_count, self._source_map
             )
-        except Exception:
-            exc_type, exception, traceback = sys.exc_info()
-            traceback = get_traceback(code, exception, traceback, execution_count, self._source_map)
+        except Exception as exc:  # noqa: BLE001 - report user errors without stopping the kernel
+            exception = exc
+            traceback = get_traceback(
+                code, exc, exc.__traceback__, execution_count, self._source_map
+            )
         finally:
             self.cell_done[task_i].set()
             try:
@@ -529,12 +539,12 @@ class Kernel:
 
     async def finish_execution(
         self,
-        idents: List[bytes],
-        parent_header: Dict[str, Any],
+        idents: list[bytes],
+        parent_header: dict[str, Any],
         execution_count: int | None,
         exception: BaseException | None = None,
         no_exec: bool = False,
-        traceback: List[str] = [],
+        traceback: list[str] | None = None,
     ) -> None:
         if no_exec:
             status = "aborted"
@@ -641,10 +651,10 @@ class Kernel:
     def create_message(
         self,
         msg_type: str,
-        content: Dict = {},
-        parent_header: Dict[str, Any] = {},
+        content: dict | None = None,
+        parent_header: dict[str, Any] | None = None,
         address: bytes | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         msg = create_message(
             msg_type,
             content=content,
@@ -664,19 +674,19 @@ class Kernel:
                     data = result._repr_mimebundle_()
                     display.display(data, raw=True)
                     send_stream = False
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - fall back to repr if rich display fails
                     pass
             elif getattr(result, "_ipython_display_", None) is not None:
                 try:
                     result._ipython_display_()
                     send_stream = False
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - fall back to repr if rich display fails
                     pass
             if send_stream:
                 msg = self.create_message(
                     "stream",
                     parent_header=parent_header,
-                    content={"name": "stdout", "text": f"{repr(result)}\n"},
+                    content={"name": "stdout", "text": f"{result!r}\n"},
                 )
                 to_send = serialize(msg, self.key)
                 await self.from_iopub_send_stream.send(to_send)

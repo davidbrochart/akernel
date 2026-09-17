@@ -27,9 +27,11 @@ def compile_cell(code: str, task_i: int = 0) -> CompiledCell:
     full_code = compile(tree, filename, "exec", flags=flags, dont_inherit=True)
     flags |= full_code.co_flags & FUTURE_FLAGS
     expression = None
-    if tree.body and isinstance(tree.body[-1], ast.Expr):
+    last_statement = tree.body[-1] if tree.body else None
+    if isinstance(last_statement, ast.Expr):
+        tree.body.pop()
         expression = compile(
-            ast.Expression(tree.body.pop().value),
+            ast.Expression(last_statement.value),
             filename,
             "eval",
             flags=flags,

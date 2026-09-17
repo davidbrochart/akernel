@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import uuid
-import hmac
-import hashlib
 from datetime import datetime, timezone
 from typing import Any, cast
 
 from dateutil.parser import parse as dateutil_parse  # type: ignore
 
-
 protocol_version_info = (5, 3)
-protocol_version = "%i.%i" % protocol_version_info
+protocol_version = ".".join(map(str, protocol_version_info))
 
 DELIM = b"<IDS|MSG>"
 
@@ -23,13 +22,13 @@ def date_to_str(obj: dict[str, Any]):
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow().replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 def feed_identities(msg_list: list[bytes]) -> tuple[list[bytes], list[bytes]]:
     idx = msg_list.index(DELIM)
     idents = msg_list[:idx] or [b"foo"]
-    return idents, msg_list[idx + 1 :]  # noqa
+    return idents, msg_list[idx + 1 :]
 
 
 def create_message_header(msg_type: str, session_id: str, msg_cnt: int) -> dict[str, Any]:
@@ -50,14 +49,20 @@ def create_message_header(msg_type: str, session_id: str, msg_cnt: int) -> dict[
 
 def create_message(
     msg_type: str,
-    content: dict = {},
+    content: dict | None = None,
     metadata: dict[str, Any] | None = None,
-    parent_header: dict[str, Any] = {},
+    parent_header: dict[str, Any] | None = None,
     session_id: str = "",
     msg_cnt: int = 0,
-    buffers: list = [],
+    buffers: list | None = None,
     address: bytes | None = None,
 ) -> dict[str, Any]:
+    if content is None:
+        content = {}
+    if parent_header is None:
+        parent_header = {}
+    if buffers is None:
+        buffers = []
     for buf in buffers:
         if isinstance(buf, memoryview):
             view = buf

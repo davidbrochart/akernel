@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import re
 from textwrap import dedent
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import pytest
 
@@ -13,25 +13,25 @@ from akernel.traceback import get_traceback
 
 async def run(
     code: str,
-    globals_: Dict[str, Any] | None = None,
-) -> Tuple[Any, List[str], bool, Dict[str, Any]]:
+    globals_: dict[str, Any] | None = None,
+) -> tuple[Any, list[str], bool, dict[str, Any]]:
     if globals_ is None:
         globals_ = {}
     result, interrupted = None, False
-    cell, traceback, exception = prepare_cell(code)
+    cell, traceback, _exception = prepare_cell(code)
     if cell is not None:
         try:
             result = await execute_cell(cell, globals_)
         except KeyboardInterrupt:
             interrupted = True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - exercise arbitrary cell errors
             traceback = get_traceback(code, exc, exc.__traceback__, source_map={"<cell-0>": code})
     if "__builtins__" in globals_:
         del globals_["__builtins__"]
     return result, traceback, interrupted, globals_
 
 
-def tb_str(traceback: List[str]) -> str:
+def tb_str(traceback: list[str]) -> str:
     colored_tb = "\n".join(traceback)
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
     nocolor_tb = ansi_escape.sub("", colored_tb)

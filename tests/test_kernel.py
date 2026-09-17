@@ -58,7 +58,7 @@ async def test_syntax_error(capfd, kernelspec_path):
     await kd.execute("foo bar", timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    _out, err = capfd.readouterr()
     text = ANSI_ESCAPE.sub("", err)
     assert "SyntaxError: invalid syntax" in text
     assert "Cell 1, line 1" in text
@@ -72,7 +72,7 @@ async def test_name_not_defined(capfd, kernelspec_path):
     await kd.execute("foo", timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    _out, err = capfd.readouterr()
     text = ANSI_ESCAPE.sub("", err)
     assert "Cell 1 (<module>):1" in text
     assert "NameError: name 'foo' is not defined" in text
@@ -84,7 +84,7 @@ async def test_hello_world(capfd, kernelspec_path):
     await kd.execute("print('Hello World!')", timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    out, _err = capfd.readouterr()
     assert out == "Hello World!\n"
 
 
@@ -97,7 +97,7 @@ async def test_global_variable(capfd, kernelspec_path):
     await kd.execute("print(a)", timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    out, _err = capfd.readouterr()
     assert out == "1\n3\n"
 
 
@@ -117,7 +117,7 @@ async def test_chained_cells(capfd, kernelspec_path):
         await sleep(1)
         await kd.stop()
 
-        out, err = capfd.readouterr()
+        out, _err = capfd.readouterr()
         assert out == "done1\ndone2\n"
 
 
@@ -144,7 +144,7 @@ async def test_interrupt_chained(capfd, kernelspec_path):
         await sleep(0.1)
         await kd.stop()
 
-        out, err = capfd.readouterr()
+        out, _err = capfd.readouterr()
         assert out == "before 0\n"
 
 
@@ -154,7 +154,7 @@ async def test_repr(capfd, kernelspec_path):
     await kd.execute("1 + 2", timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    out, _err = capfd.readouterr()
     assert out == "3\n"
 
 
@@ -178,5 +178,5 @@ async def test_globals(capfd, kernelspec_path):
     await kd.execute(code, timeout=TIMEOUT)
     await kd.stop()
 
-    out, err = capfd.readouterr()
+    out, _err = capfd.readouterr()
     assert out == "2\n2\n"

@@ -12,8 +12,8 @@ from akernel.traceback import get_traceback
 def render(code, namespace=None):
     namespace = {} if namespace is None else namespace
     try:
-        exec(compile(code, "<cell-0>", "exec"), namespace)
-    except BaseException as exc:
+        exec(compile(code, "<cell-0>", "exec"), namespace)  # noqa: S102 - test cell execution
+    except BaseException as exc:  # noqa: BLE001 - render arbitrary errors, including interrupts
         lines = get_traceback(code, exc, exc.__traceback__, source_map={"<cell-0>": code})
         return lines, Text.from_ansi("\n".join(lines)).plain
     raise AssertionError("Code did not raise")

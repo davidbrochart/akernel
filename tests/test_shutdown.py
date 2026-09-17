@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, Mock, patch
 
+import anyio.lowlevel
 import pytest
 from anyio import (
     Event,
@@ -10,7 +11,6 @@ from anyio import (
     create_memory_object_stream,
     create_task_group,
     fail_after,
-    sleep,
 )
 
 from akernel.akernel import AKernel
@@ -119,7 +119,7 @@ class TestShutdown:
         await self.send("shell", "execute_request", {"code": "import anyio\nawait anyio.sleep(60)"})
         with fail_after(2):
             while not self.kernel.kernel.running_cells:
-                await sleep(0)
+                await anyio.lowlevel.checkpoint()
         tasks = list(self.kernel.kernel.running_cells.values())
         await self.send("control", "shutdown_request", {"restart": False})
         with fail_after(2):

@@ -3,7 +3,6 @@ from __future__ import annotations
 from functools import partial
 
 from fps import Module
-
 from jupyverse_kernel import KernelFactory
 from jupyverse_kernels import Kernels
 

@@ -1,6 +1,7 @@
 import threading
 from unittest.mock import Mock, patch
 
+import anyio.lowlevel
 import pytest
 from anyio import (
     Event,
@@ -264,7 +265,7 @@ class TestPluginInterrupt:
             task = self.tasks.create_task(plugin.start())
             with fail_after(2):
                 await plugin.started.wait()
-            await sleep(0)
+            await anyio.lowlevel.checkpoint()
             await plugin.stop()
             with fail_after(2):
                 await task

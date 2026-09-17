@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    shell: bash -l {0}
+    shell: bash
 
 jobs:
   test:
@@ -44,5 +44,5 @@ jobs:
     - name: Run tests
       run: |
         akernel --help
-        test -f ${pythonLocation}/../share/jupyter/kernels/akernel/kernel.json
+        python -c "from pathlib import Path; import sys; assert (Path(sys.prefix) / 'share/jupyter/kernels/akernel/kernel.json').is_file()"
         pytest -v --reruns 5
