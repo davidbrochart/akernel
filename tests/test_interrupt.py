@@ -106,10 +106,13 @@ class TestInterrupt:
         assert "fail()" in traceback
         await self.assert_finished(msg_id, "error")
 
-    async def test_interrupt_chained_cells(self):
+    @pytest.mark.parametrize(
+        "queued_code", ["print('must not execute')\nawait anyio.sleep(60)", "invalid syntax"]
+    )
+    async def test_interrupt_chained_cells(self, queued_code):
         first = await self.execute("import anyio\nprint('started')\nawait anyio.sleep(60)")
         await self.wait_for_output(first, "stream")
-        second = await self.execute("print('must not execute')")
+        second = await self.execute(queued_code)
         # Wait until the queued execution has been registered.
         for _ in range(100):
             if len(self.kernel.running_cells) == 2:
@@ -119,11 +122,68 @@ class TestInterrupt:
         self.kernel.interrupt()
         replies = [await self.receive(self.shell_stream) for _ in range(2)]
         assert {r["parent_header"]["msg_id"] for r in replies} == {first, second}
-        assert all(r["content"]["status"] == "error" for r in replies)
+        statuses = {r["parent_header"]["msg_id"]: r["content"]["status"] for r in replies}
+        assert statuses == {first: "error", second: "aborted"}
+        counts = {r["parent_header"]["msg_id"]: r["content"]["execution_count"] for r in replies}
+        assert counts == {first: 1, second: None}
+        finished = set()
+        errors = []
+        while len(finished) < 2:
+            message = await self.receive(self.iopub_stream)
+            parent = message["parent_header"].get("msg_id")
+            if message["header"]["msg_type"] == "error":
+                errors.append(parent)
+            if parent == second:
+                assert message["header"]["msg_type"] not in (
+                    "error",
+                    "stream",
+                    "execute_result",
+                    "execute_input",
+                )
+            if message["content"].get("execution_state") == "idle":
+                finished.add(parent)
+        assert errors == [first]
         third = await self.execute("'NEXT'")
+        execution = await self.wait_for_output(third, "execute_input")
+        assert execution["content"]["execution_count"] == 2
         output = await self.wait_for_output(third, "stream")
         assert output["content"]["text"] == "'NEXT'\n"
         await self.assert_finished(third, "ok")
+        fourth = await self.execute("1 / 0")
+        execution = await self.wait_for_output(fourth, "execute_input")
+        assert execution["content"]["execution_count"] == 3
+        error = await self.wait_for_output(fourth, "error")
+        traceback = Text.from_ansi("\n".join(error["content"]["traceback"])).plain
+        assert "Cell 3" in traceback
+        assert "Cell 4" not in traceback
+        await self.assert_finished(fourth, "error")
+
+    async def test_syntax_error_consumes_one_execution_number(self):
+        first = await self.execute("invalid syntax")
+        execution = await self.wait_for_output(first, "execute_input")
+        assert execution["content"]["execution_count"] == 1
+        await self.assert_finished(first, "error")
+        second = await self.execute("42")
+        execution = await self.wait_for_output(second, "execute_input")
+        assert execution["content"]["execution_count"] == 2
+        await self.assert_finished(second, "ok")
+
+    async def test_interrupt_during_transport_handoff(self):
+        with fail_after(2):
+            while not self.kernel.to_shell_receive_stream.statistics().tasks_waiting_receive:
+                await anyio.lowlevel.checkpoint()
+        request = create_message("execute_request", content={"code": "must_not_run = True"})
+        frames = serialize(request, self.kernel.key)
+        self.kernel.register_shell_request(frames)
+        self.streams[0][0].send_nowait(frames)
+        # The message has left the stream but its receiver has not resumed yet.
+        assert self.kernel.to_shell_receive_stream.statistics().current_buffer_used == 0
+        self.kernel.interrupt()
+        await self.assert_finished(request["header"]["msg_id"], "aborted")
+        assert "must_not_run" not in self.kernel.globals
+        second = await self.execute("'NEXT'")
+        await self.assert_finished(second, "ok")
+        assert self.kernel._pending_shell_requests == {}
 
     async def test_interrupt_while_queued_cell_is_being_dispatched(self):
         first = await self.execute("import anyio\nprint('started')\nawait anyio.sleep(60)")
@@ -134,7 +194,9 @@ class TestInterrupt:
 
         async def send(frames):
             message = deserialize(feed_identities(frames)[1])
-            if message["header"]["msg_type"] == "execute_input":
+            if message["header"]["msg_type"] == "status" and message["content"] == {
+                "execution_state": "busy"
+            }:
                 dispatching.set()
                 await resume.wait()
             await original_send(frames)
@@ -184,6 +246,39 @@ class TestInterrupt:
 
 class TestThreadInterrupt(TestInterrupt):
     execute_in_thread = True
+
+    async def test_interrupt_before_worker_starts_cell(self):
+        commands = []
+        original_send = self.kernel.send_worker_command
+
+        def send(func, *args):
+            if func == self.kernel._thread_send.send_nowait:
+                commands.append((func, args))
+            else:
+                original_send(func, *args)
+
+        with patch.object(self.kernel, "send_worker_command", send):
+            msg_id = await self.execute("must_not_run = True")
+            with fail_after(2):
+                while not commands:
+                    await anyio.lowlevel.checkpoint()
+            self.kernel.interrupt()
+            func, args = commands.pop()
+            original_send(func, *args)
+            reply = await self.receive(self.shell_stream)
+            assert reply["parent_header"]["msg_id"] == msg_id
+            assert reply["content"]["status"] == "aborted"
+            assert reply["content"]["execution_count"] is None
+            while True:
+                message = await self.receive(self.iopub_stream)
+                assert message["header"]["msg_type"] not in ("error", "execute_input")
+                if message["content"].get("execution_state") == "idle":
+                    break
+        assert "must_not_run" not in self.kernel.globals
+        second = await self.execute("'NEXT'")
+        execution = await self.wait_for_output(second, "execute_input")
+        assert execution["content"]["execution_count"] == 1
+        await self.assert_finished(second, "ok")
 
     async def test_blocking_cell_completes_normally_after_interrupt(self):
         release = threading.Event()

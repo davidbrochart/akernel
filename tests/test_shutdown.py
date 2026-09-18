@@ -5,9 +5,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import anyio.lowlevel
 import pytest
+import zmq
 from anyio import (
     Event,
     Future,
+    WouldBlock,
     create_memory_object_stream,
     create_task_group,
     fail_after,
@@ -75,7 +77,7 @@ class TestShutdown:
             ):
                 self.kernel = AKernel(path, False)
         async with create_task_group() as self.tasks:
-            self.task = self.tasks.create_task(self.kernel.start())
+            self.task = self.tasks.create_task(self.kernel._start())
             try:
                 with fail_after(2):
                     await self.channels["iopub"].sent_receive.receive()
@@ -136,6 +138,36 @@ class TestShutdown:
 
 
 class TestSocketFutures:
+    async def test_interrupt_drains_completed_receive_once(self):
+        first, second = [b"first"], [b"second"]
+        receive = Future()
+        next_receive = Future()
+        kernel = AKernel.__new__(AKernel)
+        kernel.kernel = Mock()
+        kernel._shell_receive = None
+        kernel.shell_channel = Mock()
+        kernel.shell_channel.arecv_multipart.side_effect = [receive, next_receive]
+        kernel.shell_channel.recv_multipart.side_effect = [second, zmq.Again()]
+        send, stream = create_memory_object_stream(100)
+        kernel._to_shell_send_stream = send
+        async with send, stream, create_task_group() as tasks:
+            tasks.start_soon(kernel.to_shell)
+            with fail_after(2):
+                while kernel._shell_receive is not receive:
+                    await anyio.lowlevel.checkpoint()
+            receive.return_value = first
+            # Drain before the forwarding task can resume its completed await.
+            kernel.drain_shell()
+            with fail_after(2):
+                while kernel._shell_receive is not next_receive:
+                    await anyio.lowlevel.checkpoint()
+            assert stream.receive_nowait() == first
+            assert stream.receive_nowait() == second
+            with pytest.raises(WouldBlock):
+                stream.receive_nowait()
+            assert kernel.kernel.register_shell_request.call_count == 2
+            tasks.cancel_scope.cancel()
+
     @pytest.mark.parametrize("name", ["shell", "control", "stdin"])
     async def test_receivers_use_future_return_value(self, name):
         # AnyIO Future.wait() returns None; awaiting the future returns the frames.
@@ -143,12 +175,17 @@ class TestSocketFutures:
         future = Future()
         future.return_value = frames
         kernel = AKernel.__new__(AKernel)
+        kernel.kernel = Mock()
         channel = Mock()
         channel.arecv_multipart.return_value = future
         stream = Mock()
         stream.send = AsyncMock(side_effect=RuntimeError("stop receiving"))
+        stream.send_nowait = Mock(side_effect=RuntimeError("stop receiving"))
         setattr(kernel, f"{name}_channel", channel)
         setattr(kernel, f"_to_{name}_send_stream", stream)
         with pytest.raises(RuntimeError, match="stop receiving"):
             await getattr(kernel, f"to_{name}")()
-        stream.send.assert_awaited_once_with(frames)
+        if name == "shell":
+            stream.send_nowait.assert_called_once_with(frames)
+        else:
+            stream.send.assert_awaited_once_with(frames)

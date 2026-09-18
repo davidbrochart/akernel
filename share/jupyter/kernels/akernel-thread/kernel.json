@@ -7,5 +7,6 @@
     "{connection_file}"
   ],
   "display_name": "Python 3 (akernel-thread)",
-  "language": "python"
+  "language": "python",
+  "interrupt_mode": "message"
 }

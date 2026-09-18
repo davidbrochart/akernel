@@ -38,6 +38,7 @@ dev = [
     "pytest-rerunfailures",
     "types-python-dateutil",
     "kernel_driver >=0.0.7",
+    "jupyter_client >=8,<9",
     "tornado >=6.1; sys_platform == 'win32'",
 ]
 
@@ -56,6 +57,7 @@ packages = ["src/akernel"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "share/jupyter/kernels/akernel/kernel.json" = "share/jupyter/kernels/akernel/kernel.json"
+"share/jupyter/kernels/akernel-task/kernel.json" = "share/jupyter/kernels/akernel-task/kernel.json"
 "share/jupyter/kernels/akernel-thread/kernel.json" = "share/jupyter/kernels/akernel-thread/kernel.json"
 
 [project.urls]

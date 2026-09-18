@@ -17,8 +17,10 @@ class AKernelTaskModule(Module):
 
     async def prepare(self) -> None:
         kernels = await self.get(Kernels)
+        kernel_name = "akernel-thread" if self.execute_in_thread else "akernel-task"
         kernels.register_kernel_factory(
-            "akernel", KernelFactory(partial(AKernelTask, execute_in_thread=self.execute_in_thread))
+            kernel_name,
+            KernelFactory(partial(AKernelTask, execute_in_thread=self.execute_in_thread)),
         )
 
 
