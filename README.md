@@ -23,12 +23,28 @@ Install it with:
 pip install "fps-akernel-task"
 ```
 
-This will give you both `Python 3 (akernel)` and `Python 3 (akernel-thread)` kernels
+This will give you both `Python 3 (akernel-task)` and `Python 3 (akernel-thread)` kernels
 in JupyterLab.
+
+| Kernelspec | Execution in Jupyverse | Interrupt mode |
+| --- | --- | --- |
+| `akernel` | Separate process | Signal |
+| `akernel-task` | In-process, on the server event loop | Message |
+| `akernel-thread` | In-process, in a worker thread | Message |
+
+To refresh the kernelspecs in an existing installation, run:
+
+```bash
+akernel install --mode process
+akernel install --mode task
+akernel install --mode thread
+```
+
+The default mode is `process`.
 
 ## In-process kernels
 
-They run in Jupyverse's process, so running blocking user code in the kernel
+`akernel-task` runs in Jupyverse's process, so running blocking user code in the kernel
 will also block Jupyverse.
 
 `akernel-thread` is an in-process kernel that runs user code in a separate thread,

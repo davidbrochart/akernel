@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, cast
+import signal
+import sys
+from types import FrameType
+from typing import Annotated, Literal, cast
 
-from anyio import Event, create_memory_object_stream, create_task_group, run
+import zmq
+from anyio import (
+    Event,
+    Future,
+    create_memory_object_stream,
+    create_task_group,
+    open_signal_receiver,
+    run,
+)
+from anyio.lowlevel import checkpoint
 from cyclopts import App, Parameter
 
 from .connect import connect_channel
+from .execution import execute_cell
 from .kernel import Kernel
 from .kernelspec import write_kernelspec
 from .message import deserialize, feed_identities
@@ -15,10 +28,10 @@ app = App()
 
 
 @app.command()
-def install(execute_in_thread: bool = False) -> None:
-    """Install the kernel, optionally executing user code in a thread."""
-    kernel_name = "akernel-thread" if execute_in_thread else "akernel"
-    write_kernelspec(kernel_name, f"Python 3 ({kernel_name})", execute_in_thread)
+def install(mode: Literal["process", "task", "thread"] = "process") -> None:
+    """Install the subprocess kernel, or the in-process task or thread kernel."""
+    kernel_name = {"process": "akernel", "task": "akernel-task", "thread": "akernel-thread"}[mode]
+    write_kernelspec(kernel_name, f"Python 3 ({kernel_name})", mode=mode)
 
 
 @app.command()
@@ -39,9 +52,10 @@ def launch(
 class AKernel:
     def __init__(self, connection_file, execute_in_thread=False):
         self._shutdown_reply_sent = Event()
+        self._shell_receive: Future[list[bytes]] | None = None
         self._to_shell_send_stream, self._to_shell_receive_stream = create_memory_object_stream[
             list[bytes]
-        ]()
+        ](float("inf"))
         self._from_shell_send_stream, self._from_shell_receive_stream = create_memory_object_stream[
             list[bytes]
         ]()
@@ -69,6 +83,7 @@ class AKernel:
             self._from_stdin_send_stream,
             self._from_iopub_send_stream,
             execute_in_thread,
+            drain_shell=self.drain_shell,
         )
         with open(connection_file) as f:
             connection_cfg = json.load(f)
@@ -79,6 +94,40 @@ class AKernel:
         self.stdin_channel = connect_channel("stdin", connection_cfg)
 
     async def start(self) -> None:
+        if sys.platform == "win32":
+            await self._start()
+            return
+
+        with open_signal_receiver(signal.SIGINT) as signals:
+            receiver_handler = signal.getsignal(signal.SIGINT)
+
+            async def receive_interrupts() -> None:
+                async for _ in signals:
+                    self.kernel.process_pending_interrupt()
+
+            def interrupt(signum: int, frame: FrameType | None) -> None:
+                self.kernel.request_interrupt()
+                # Preserve AnyIO's signal delivery and event-loop wakeup.
+                if callable(receiver_handler):
+                    receiver_handler(signum, frame)
+                if not self.kernel.execute_in_thread:
+                    while frame is not None:
+                        if frame.f_code in (execute_cell.__code__, Kernel.show_result.__code__):
+                            # An async receiver cannot run during blocking
+                            # code. Raise only inside the cell's exception
+                            # boundary, never into the event loop itself.
+                            raise KeyboardInterrupt()
+                        frame = frame.f_back
+
+            signal.signal(signal.SIGINT, interrupt)
+            async with create_task_group() as tasks:
+                tasks.start_soon(receive_interrupts)
+                try:
+                    await self._start()
+                finally:
+                    tasks.cancel_scope.cancel()
+
+    async def _start(self) -> None:
         async with (
             self._to_shell_send_stream,
             self._to_shell_receive_stream,
@@ -113,10 +162,35 @@ class AKernel:
             await self._shutdown_reply_sent.wait()
             tg.cancel_scope.cancel()
 
+    def drain_shell(self) -> None:
+        # Include a socket receive that completed before its forwarding task
+        # resumed. Clearing the reference prevents forwarding it twice.
+        if self._shell_receive is not None and self._shell_receive.status is Future.Status.FINISHED:
+            self.queue_shell(self._shell_receive.return_value)
+            self._shell_receive = None
+        # A blocking cell leaves Run All requests in ZeroMQ, outside the kernel's
+        # memory stream. Move the currently available backlog into that stream
+        # before Kernel.interrupt() snapshots it. Later requests remain usable.
+        while True:
+            try:
+                msg = self.shell_channel.recv_multipart(flags=zmq.DONTWAIT)
+            except zmq.Again:
+                break
+            self.queue_shell(msg)
+
+    def queue_shell(self, msg: list[bytes]) -> None:
+        self.kernel.register_shell_request(msg)
+        self._to_shell_send_stream.send_nowait(msg)
+
     async def to_shell(self) -> None:
         while True:
-            msg = await self.shell_channel.arecv_multipart()
-            await self._to_shell_send_stream.send(msg)
+            await checkpoint()
+            future = self.shell_channel.arecv_multipart()
+            self._shell_receive = future
+            msg = await future
+            if self._shell_receive is future:
+                self._shell_receive = None
+                self.queue_shell(msg)
 
     async def from_shell(self) -> None:
         async for msg in self._from_shell_receive_stream:
