@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from dateutil.parser import parse as dateutil_parse  # type: ignore
@@ -22,7 +22,7 @@ def date_to_str(obj: dict[str, Any]):
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def feed_identities(msg_list: list[bytes]) -> tuple[list[bytes], list[bytes]]:
