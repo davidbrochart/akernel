@@ -1,12 +1,35 @@
+import sys
 from types import SimpleNamespace
 
 import pytest
 from anyio import create_memory_object_stream, create_task_group, fail_after
 
+from akernel.execution import compile_cell, execute_cell
 from akernel.kernel import Kernel
 from akernel.message import create_message, deserialize, feed_identities, serialize
 
 pytestmark = pytest.mark.anyio
+
+
+async def test_local_imports_follow_working_directory(tmp_path, monkeypatch):
+    # Reproduce a console-script launch without the working directory on sys.path.
+    monkeypatch.setattr(sys, "path", [path for path in sys.path if path != ""])
+    kernel = Kernel(*([None] * 7))
+    kernel.init_kernel()
+    for index in range(2):
+        directory = tmp_path / str(index)
+        package = directory / f"local_package_{index}"
+        package.mkdir(parents=True)
+        (package / "foo.py").write_text(f"bar = {index}\n")
+        monkeypatch.chdir(directory)
+        try:
+            result = await execute_cell(
+                compile_cell(f"from local_package_{index}.foo import bar\nbar"), kernel.globals
+            )
+            assert result == index
+        finally:
+            sys.modules.pop(f"local_package_{index}.foo", None)
+            sys.modules.pop(f"local_package_{index}", None)
 
 
 class TestStartup:
