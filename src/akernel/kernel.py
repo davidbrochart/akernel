@@ -146,6 +146,11 @@ class Kernel:
     def init_kernel(self):
         if self.kernel_initialized:
             return
+        # Console-script launchers put their bin directory on sys.path.
+        # Resolve local imports against the current working directory, including
+        # after user code changes it.
+        if "" not in sys.path:
+            sys.path.insert(0, "")
         self.globals = {"print": self.print, "_": None}
         if self.execute_in_thread:
             self.globals["input"] = self.input
