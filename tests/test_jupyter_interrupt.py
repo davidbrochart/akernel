@@ -121,6 +121,8 @@ async def test_jupyter_interrupt_preserves_kernel(
         root = tmp_path
     else:
         root = Path(__file__).resolve().parents[1]
+        if execute_in_thread:
+            root /= "plugins/akernel_task"
     spec_path = root / "share" / "jupyter" / "kernels" / name / "kernel.json"
     spec = json.loads(spec_path.read_text())
     # Use this interpreter and checkout while retaining the shipped launch options.

@@ -22,7 +22,10 @@ def test_install_matches_packaged_kernelspec(tmp_path, monkeypatch, options, nam
     app(["install", *options], result_action="return_value")
     relative_path = Path("share/jupyter/kernels") / name / "kernel.json"
     installed = json.loads((tmp_path / relative_path).read_text())
-    packaged = json.loads((Path(__file__).resolve().parents[1] / relative_path).read_text())
+    package_root = Path(__file__).resolve().parents[1]
+    if name != "akernel":
+        package_root /= "plugins/akernel_task"
+    packaged = json.loads((package_root / relative_path).read_text())
     assert installed == packaged
     assert installed["display_name"] == f"Python 3 ({name})"
     assert installed["interrupt_mode"] == interrupt_mode
