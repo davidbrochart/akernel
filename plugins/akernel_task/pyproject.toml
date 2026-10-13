@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fps_akernel_task"
-version = "0.2.1"
+version = "0.2.2"
 description = "An FPS plugin for the kernel task API"
 keywords = ["jupyter", "server", "fastapi", "plugins"]
 requires-python = ">=3.11"
 dependencies = [
     "jupyverse-api >=0.15.0,<0.16.0",
     "anyio",
-    "akernel >=0.4.1",
+    "akernel >=0.4.2",
 ]
 
 [[project.authors]]
