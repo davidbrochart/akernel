@@ -3,7 +3,6 @@ import sys
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import partial
 from io import StringIO
 from types import TracebackType
 from typing import Any
@@ -21,7 +20,8 @@ from anyio import (
     run,
     to_thread,
 )
-from anyio.lowlevel import EventLoopToken, checkpoint, current_token
+from anyio.from_thread import BlockingPortal
+from anyio.lowlevel import checkpoint
 
 import akernel.IPython
 from akernel.comm.manager import CommManager
@@ -40,7 +40,7 @@ from .message import (
 from .traceback import get_traceback
 
 ThreadResult = tuple[Any, BaseException | None, TracebackType | None]
-WorkerCommand = tuple[EventLoopToken, Callable[..., Any], tuple[Any, ...]]
+WorkerCommand = tuple[Callable[..., Any], tuple[Any, ...]]
 
 PARENT_VAR: ContextVar = ContextVar("parent")
 IDENTS_VAR: ContextVar = ContextVar("idents")
@@ -137,7 +137,7 @@ class Kernel:
         self.msg_cnt = 0
         self.stop_event = Event()
         self._stopping = False
-        self._thread_token: EventLoopToken | None = None
+        self._thread_portal: BlockingPortal | None = None
         self._thread_jobs: dict[int, ThreadExecution] = {}
         self._cancelled_cells: set[int] = set()
         self._finishing_cells: dict[int, CancelScope] = {}
@@ -198,25 +198,22 @@ class Kernel:
         if job.cancelled():
             return
         job.cancel()
-        if self._thread_token is not None and job.cancel_scope is not None:
+        if self._thread_portal is not None and job.cancel_scope is not None:
             self.send_worker_command(job.cancel_scope.cancel)
 
     def send_worker_command(self, func: Callable[..., Any], *args: Any) -> None:
-        token = self._thread_token
-        assert token is not None
-        self._worker_commands_send.send_nowait((token, func, args))
+        self._worker_commands_send.send_nowait((func, args))
 
-    async def forward_worker_commands(self) -> None:
-        # Cross-thread calls wait for the worker loop. Run them off the server
-        # thread and preserve their order, including the shutdown sentinel.
+    async def forward_worker_commands(self, portal: BlockingPortal) -> None:
+        # Preserve command order, including the shutdown sentinel, without
+        # blocking the server loop while the worker loop is busy.
         with CancelScope(shield=True):
             async with self._worker_commands_receive:
-                async for token, func, args in self._worker_commands_receive:
+                async for func, args in self._worker_commands_receive:
                     try:
-                        await to_thread.run_sync(
-                            partial(from_thread.run_sync, func, *args, token=token)
-                        )
-                    except RunFinishedError:
+                        await portal.call_async(func, *args)
+                    except (RunFinishedError, RuntimeError):
+                        # Shutdown may close the portal before queued commands run.
                         if not self._stopping:
                             raise
 
@@ -259,17 +256,18 @@ class Kernel:
         return self._stopping
 
     async def thread_main(self) -> None:
-        self._thread_token = current_token()
         self._thread_send, self._thread_receive = create_memory_object_stream[
             ThreadExecution | None
         ](float("inf"))
-        from_thread.run_sync(self._thread_ready.set)
-        try:
-            async with self._thread_send, self._thread_receive:
-                if not from_thread.run_sync(self._is_stopping):
-                    await self.thread_execute()
-        finally:
-            self._thread_token = None
+        async with BlockingPortal() as portal:
+            self._thread_portal = portal
+            from_thread.run_sync(self._thread_ready.set)
+            try:
+                async with self._thread_send, self._thread_receive:
+                    if not from_thread.run_sync(self._is_stopping):
+                        await self.thread_execute()
+            finally:
+                self._thread_portal = None
 
     def run_thread(self) -> None:
         run(self.thread_main)
@@ -282,10 +280,11 @@ class Kernel:
                     self._worker_commands_send, self._worker_commands_receive = (
                         create_memory_object_stream[WorkerCommand](float("inf"))
                     )
-                    self.task_group.start_soon(self.forward_worker_commands)
                     self._thread_ready = Event()
                     self.task_group.start_soon(to_thread.run_sync, self.run_thread)
                     await self._thread_ready.wait()
+                    assert self._thread_portal is not None
+                    self.task_group.start_soon(self.forward_worker_commands, self._thread_portal)
                 msg = self.create_message(
                     "status", content={"execution_state": self.execution_state}
                 )
@@ -303,7 +302,7 @@ class Kernel:
                     self.interrupt()
                     for scope in list(self._finishing_cells.values()):
                         scope.cancel()
-                    if self._thread_token is not None:
+                    if self._thread_portal is not None:
                         self.send_worker_command(self._thread_send.send_nowait, None)
                 finally:
                     if self.execute_in_thread:
