@@ -247,6 +247,17 @@ class TestInterrupt:
 class TestThreadInterrupt(TestInterrupt):
     execute_in_thread = True
 
+    async def test_worker_commands_do_not_need_another_thread(self):
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        original_tokens = limiter.total_tokens
+        try:
+            # The user-code event loop already occupies the only worker slot.
+            limiter.total_tokens = 1
+            msg_id = await self.execute("1 + 2")
+            await self.assert_finished(msg_id, "ok")
+        finally:
+            limiter.total_tokens = original_tokens
+
     async def test_interrupt_before_worker_starts_cell(self):
         commands = []
         original_send = self.kernel.send_worker_command
